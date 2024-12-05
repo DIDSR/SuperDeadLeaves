@@ -1,0 +1,29 @@
+[project]
+name = "SuperDeadLeaves"
+version = "0.0.1"
+authors = [
+  {name="Andreu Badal", email="Andreu.Badal@fda.hhs.gov"},
+]
+description = """
+Extension of the texture reproduction fidelity chart Dead Leaves using the _superformula_ to generate a variety of random shapes resembling leaves with multiple lobes.
+The superformula parameters are randomly sampled in each lobe to generate an organic-looking shape. The final shape is rotated in a random orientation.
+The superformula is a generalization of the superellipse that can generate a wide variety of geometric shapes:
+- Johan Gielis. "A generic geometric transformation that unifies a wide range of natural and abstract shapes." American journal of botany 90, p. 333-338 (2003)
+"""
+readme = "README.rst"
+requires-python = ">=3.8"
+dependencies = [
+  "numpy",
+  "pillow"
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
