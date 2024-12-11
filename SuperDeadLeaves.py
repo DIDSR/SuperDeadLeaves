@@ -1,13 +1,19 @@
-# %% [markdown]
-# ## **Super Dead Leaves**
 # 
-# Extension of the texture reproduction fidelity chart Dead Leaves (ISO-19567-2 and IEEE-1858) using the _superformula_ to generate a variety of random shapes resembling leaves with multiple lobes.
-#  [1] Gousseau and Roueff, "The dead leaves model: general results and  limits at small scales" (2003). Available at: https://arxiv.org/abs/math/0312035
-#  [2] Cao, Guichard and Hornung, "Dead leaves model for measuring texture quality on a digital camera" in SPIE Digital Photography VI, vol. 7537, pp. 126-133 (2010).
+# **Super Dead Leaves (SDL)**
+# 
+# The SDL pattern is an extension of the texture reproduction fidelity chart Dead Leaves (DL) [1] 
+# defined in the international standards ISO-19567-2 [2] and IEEE-1858 [3]. 
+# In the SDL, the overlapping random circles have been replaced by more complex shapes generated 
+# using Johan Gielis\' _superformula_ [4], a generalization of the superellipse formula that can
+# generate a wide variety of geometric shapes with multiple lobes that resemble real leaves. 
+# To generate the pattern, a large number of shapes are sampled and "stacked" underneath the
+# previously generated shapes until all pixels are covered.
 #
-# The superformula parameters are randomly sampled in each lobe to generate an organic-looking shape. The final shape is rotated in a random orientation.
-# The superformula is a generalization of the superellipse that can generate a wide variety of geometric shapes:
-#  [3] Johan Gielis. "A generic geometric transformation that unifies a wide range of natural and abstract shapes." American journal of botany 90, p. 333-338 (2003)
+# To further increase the variety and unpredictability of the shapes, the _superformula_ parameters 
+# in the SDL can be randomly sampled separately in each lobe to generate even more organic-looking shapes. 
+# Following the Dead Leaves model, the area of each shape matches the area of a circle with a radius
+# sampled from a power law distribution with exponent -3 (scale invariant). The center of the shapes 
+# are sampled with a uniform distribution on the image plane (the center can be located outside the image).
 # 
 # The superformula in polar coordinates is given by:
 # 
@@ -16,34 +22,53 @@
 # \end{equation}
 # 
 # where:
-# - \(r(\theta)\) defines the radial distance as a function of the polar angle \(\theta\).
-# - \(m\) determines the number of lobes (periodic symmetry).
-# - \(n_1\) adjusts the overall roundness or spikiness of the shape (smaller values yield more angular shapes).
-# - \(n_2\) and \(n_3\) influence the shape's curvature and the sharpness or smoothness of the lobes.
-# - \(a\) and \(b\) control the scaling along the \(x\) and \(y\) axes (fixed to 1).
-# 
-# The parameters \(n_1, n_2, n_3\) are randomly perturbed in each lobe to generate unique and varied shapes that resemble biological forms.
-# 
+#  $r(\theta)$ defines the radial distance as a function of the polar angle $\theta$.
+#  $m$ determines the number of lobes (periodic symmetry).
+#  $n_1$ adjusts the overall roundness or spikiness of the shape (smaller values yield more angular shapes).
+#  $n_2$ and $n_3$ influence the shape's curvature and the sharpness or smoothness of the lobes.
+#  $a$ and $b$ control the scaling along the $x$ and $y$ axes (fixed to 1).
+#
+# In the SDL, the parameters \($n_1$, $n_2$, $n_3$\) can be randomly perturbed in each one of the
+# $m$ lobes to generate unique and varied shapes that resemble biological forms.
+#
+# The ultimate objective of the SDL pattern is to test the performance of non-linear image processing 
+# algorithms based on machine-learning techniques. High-resolution, noise-free realizations of the 
+# SDL can be computationally  degraded to reproduce images acquired with a real imaging device. 
+# These images can then be post-processed with denoising and super-resolution algorithms to try to 
+# recover the original ground truth image. Methods developed to process the Dead Leaves phantom [5] 
+# can be used for a full-reference analysis of the information recovered in the post-processing.
+#
+# ** References**
+#  [1] Cao, Guichard and Hornung, "Dead leaves model for measuring texture quality on a digital camera" in SPIE Digital Photography VI, vol. 7537, p. 126-133 (2010)
+#  [2] ISO/TS 19567-2:2019, "Photography — Digital cameras, Part 2: Texture analysis using stochastic pattern" (2019)
+#  [3] IEEE 1858-2023, "IEEE Standard for Camera Phone Image Quality (CPIQ)" (2023) 
+#  [4] Johan Gielis. "A generic geometric transformation that unifies a wide range of natural and abstract shapes." American journal of botany 90, p. 333-338 (2003)
+#  [5] Kirk, L., Herzer, P., Artmann, U., and Kunz, D., "Description of texture loss using the dead leaves target: current issues and a new intrinsic approach." SPIE Digital Photography X, 9023, p. 112–120 (2014)
+#
+#
 # -------------
 # 
 # **Author**: Andreu Badal (Andreu.Badal-Soler (at) fda.hhs.gov)
 # 
-# **Date**: 2024/11/30
+# **Date**: 2024/12/10
 # 
 # **Disclaimer**
-#     This software and documentation (the "Software") were developed at the US Food and Drug Administration (FDA) by 
-#     employees of the Federal Government in the course of their official duties. Pursuant to Title 17, Section 105 of 
-#     the United States Code, this work is not subject to copyright protection and is in the public domain. Permission 
-#     is hereby granted, free of charge, to any person obtaining a copy of the Software, to deal in the Software without 
-#     restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, 
-#     or sell copies of the Software or derivatives, and to permit persons to whom the Software is furnished to do so. 
-#     FDA assumes no responsibility whatsoever for use by other parties of the Software, its source code, documentation 
-#     or compiled executables, and makes no guarantees, expressed or implied, about its quality, reliability, or any 
-#     other characteristic. Further, use of this code in no way implies endorsement by the FDA or confers any advantage 
-#     in regulatory decisions. Although this software can be redistributed and/or modified freely, we ask that any 
-#     derivative works bear some notice that they are derived from it, and any modified versions bear some notice that 
-#     they have been modified.
+#    This software and documentation (the "Software") were developed at the US Food and Drug Administration
+#    (FDA) by employees of the Federal Government in the course of their official duties. 
+#    Pursuant to Title 17, Section 105 of 
+#    the United States Code, this work is not subject to copyright protection and is in the public domain.
+#    Permission is hereby granted, free of charge, to any person obtaining a copy of the Software, to
+#    deal in the Software without restriction, including without limitation the rights to use, copy, 
+#    modify, merge, publish, distribute, sublicense, or sell copies of the Software or derivatives, and 
+#    to permit persons to whom the Software is furnished to do so. 
+#    FDA assumes no responsibility whatsoever for use by other parties of the Software, its source code,
+#    documentation or compiled executables, and makes no guarantees, expressed or implied, about its 
+#    quality, reliability, or any other characteristic. Further, use of this code in no way implies 
+#    endorsement by the FDA or confers any advantage in regulatory decisions. Although this software
+#    can be redistributed and/or modified freely, we ask that any derivative works bear some notice that 
+#    they are derived from it, and any modified versions bear some notice that they have been modified.
 #        
+# -------------
 
 #    !pip install numpy matplotlib scipy scikit-image
 
@@ -54,26 +79,20 @@ import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw
 from scipy.stats import pareto
 
+#GIF_frames = []  # !!GIF!! Comments marked with the tag GIF can be used to create a GIF animation of the pattern generation process.
 
-#GIF_frames = []  # !!GIF!! Declare space for the GIF frames (optional)
 
 class SuperDeadLeaves:
     """
-    Class to generate stochastic Super Dead Leaves charts based on overlapping random shapes defined by the superformula. 
+    Class to generate stochastic Super Dead Leaves charts based on overlapping random shapes defined by the superformula [Johan Gielis, 2003]. 
     The center and color of the shapes are sampled from uniform distributions, while the size follows a power-law distribution.
-    
-    The superformula [Johan Gielis, 2003] is an extension of the superellipse formula that generalizes the equation of a circle.
-    It can represent a wide variety of complex shapes, including natural forms like flowers, shells, and more abstract geometric figures.    
-        [
-        r(theta) = left( left| frac{cos left(frac{m theta}{4} right)}{a} right|^n_2 + left| frac{sin left(frac{m theta}{4}right)}{b} right|^n_3 right)^{-frac{1}{n_1}}
-        ]
-
-    Superformula shapes are naturally split in separate lobes, defined by parameter m (called polygonVertices in the class inputs).
+    Superformula shapes are divided in separate lobes, defined by the parameter m (called polygonVertices in the class inputs).
     The implemented code allows the randomization of the superformula parameters independently in each lobe. 
     This creates complex, unpredictable shapes that resemble natural objects like leaves or starfish.
     If randomization is disabled, approximately regular polygons are generated with up to 8 sides, and star shapes above 8.
 
-    Classic Dead Leaves phantoms with circles can be generated with the option: polygon_range=[2,2], randomized=False. The generated DL charts comply with the specifications of ISO-19567-2.
+    Classic Dead Leaves phantoms with circles can be generated with the option: polygon_range=[2,2], randomized=False. 
+    With appropriate input values, the generated SDL charts can comply with the specifications of ISO-19567-2.
     """
             
     def __init__(self, image_size=[512,512], seed=None, polygon_range=[2, 9], randomized=True, contrast=1.0, background_color=0.5, num_samples_chart=10000, rmin=0.005, rmax=0.2, borderFree=False):
@@ -113,6 +132,7 @@ class SuperDeadLeaves:
         self.num_points_polygon = 2*np.max(image_size)
         
         # Variability in the random sampling of the parameters in each lobe (0.5 -> randomly modify variable +- 50%)
+        # NOTE: the default values generate interesting random shapes but were not optimized in any objective way. 
         self.variability_n1 = 0.5  
         self.variability_n2 = 0.75
         self.variability_n3 = 0.75       
@@ -131,7 +151,8 @@ class SuperDeadLeaves:
         
     def set_regular_polygon(self):
         """
-        Define superformula parameters that look approximately like regular polygons from Gielis paper:
+        Define superformula parameters that look approximately like regular polygons from Gielis paper.
+        Regular polygons (with up to 8 sides) are generated when randomization is disabled.
         """
         if self.m < 3:
             self.m = 2     # Circle
@@ -252,7 +273,7 @@ class SuperDeadLeaves:
         ii_last = 0
         while(ii < self.num_samples_chart):
             # Output information on the phantom generation at regular intervals:
-            if (ii+1)%5000==0 and ii!=ii_last:
+            if (ii+1)%10000==0 and ii!=ii_last:
                 ii_last = ii  # Do not report again if last shape is being resampled
                 # Check uncovered pixels in the central part of the image (80% of X and Y):
                 central_region_NaN = np.count_nonzero(np.isnan(img[int(0.1*img.shape[0]):int(0.9*img.shape[0]), int(0.1*img.shape[1]):int(0.9*img.shape[1])]))
@@ -307,22 +328,23 @@ class SuperDeadLeaves:
     
             # Create a mask for the shape replacing pixels not yet covered (new shapes added "below" old ones, not covering them)
             mask = np.isnan(img) & (shape_mask!=0)
-            #  Easier method for circular masks: mask = np.isnan(img) & ((X - x)**2 + (Y - y)**2 < r**2)
-    
+                
             if self.borderFree:
                 # Reject any shape that touches the outer edge of the image (ie, have a value in first/last row/column)
                 if np.any(mask[0,:]) or np.any(mask[-1,:]) or np.any(mask[:,0]) or np.any(mask[:,-1]):
                     continue
 
-            # Update the canvas with the new shape
-            img[mask] = c
-
-            # Count the sampled shape and iterate
+            # Count the newly sampled shape
             ii = ii+1
 
-            # Break the loop if the image has been filled with shapes
-            if not np.any(np.isnan(img)):
-                break
+            # Check if any uncovered pixel is covered by the new shape
+            if np.any(mask):
+                # Update the canvas with the new shape
+                img[mask] = c
+
+                # Break the loop if the image has been filled with shapes
+                if not np.any(np.isnan(img)):
+                    break
 
             #if (ii<250 and (ii&(ii-1))==0) or ii%250==0:     # !!GIF!! Iteration is a power of 2 or multiple of 500            
             #    print(f'...GIF frame {ii}...')
@@ -355,10 +377,9 @@ class SuperDeadLeaves:
         
 
 
-
     def generate_cell_chart(self, cell_spacing_area_factor: float=1.0, cell_nucleus_area_factor: float=0.25, cell_nucleus_intensity: float=1.25, filename: str=None):   # !!CELL!!
         """
-         Generate a chart based on the Super Dead Leaves chart with superformula shapes that resembles isolated cells on a microscope slide.
+         Simple extension to the SDL to generate a chart with superformula shapes that resemble isolated cells on a microscope slide (eg, a liquid-based pap test).
     
         Returns:
         - numpy.ndarray (float32): The generated Super Dead Leaves image with isolated shapes with a central nucleus.
@@ -374,8 +395,8 @@ class SuperDeadLeaves:
         
         while ii<self.num_samples_chart and iteration<iteration_MAX:
             iteration = iteration + 1            
-            if iteration>0 and iteration%100==0:
-                print(f'...Sampled {iteration} shapes of {self.num_samples_chart} ({100.0*ii/self.num_samples_chart}%); {ii} added to chart...')
+            if iteration>0 and iteration%500==0:
+                print(f'... {ii} shapes of {self.num_samples_chart} ({100.0*ii/self.num_samples_chart}%) added to the chart (loop iteration {iteration})...')
             
             # Sample the radius from power-law dist, ie, a Pareto dist with power exponent - 1. Scaling to the requested rmin, and rejecting values above rmax
             r = np.inf
@@ -388,10 +409,7 @@ class SuperDeadLeaves:
             x = self.rng.random() * AspectRatio
             y = self.rng.random()
             c = 0.5 + (self.rng.random()-0.5)*self.contrast
-                
-            # Generate a new superformula-based shape (first as a polygon outline, then as a 2D bitmap with 0 outside the shape)
-            
-
+             
             # Generate a new superformula-based shape with a random number of lobes:
             self.m = self.rng.integers(low=self.polygon_range[0], high=self.polygon_range[1]+1)
             X_vertex, Y_vertex = self.generate_polygon()   # Generate polygon outline
@@ -449,8 +467,6 @@ class SuperDeadLeaves:
 
 
 
-
-
 #######################################################################################
 
 
@@ -481,7 +497,7 @@ if __name__ == "__main__":
     seed = np.random.randint(1e4, 1e5)
     rmin = 0.0025
     rmax = 0.2
-    num_samples   = 100000 #0
+    num_samples   = 100000
 
     # - Create a Super Dead Leaves class instance:
     SDL = SuperDeadLeaves(image_size=image_size, seed=seed, polygon_range=[3,10], randomized=True, contrast=1.0, rmin=rmin, rmax=rmax, num_samples_chart=num_samples) 
