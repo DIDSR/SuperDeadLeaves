@@ -1,1 +1,1 @@
-from .superdeadleaves import SuperDeadLeaves
+from .SuperDeadLeaves import SuperDeadLeaves
