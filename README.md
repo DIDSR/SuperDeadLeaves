@@ -3,7 +3,8 @@
 ## Overview
 
 The **Super Dead Leaves** (SDL) pattern is an open-source extension of the Dead Leaves pattern [1,2] used for the evaluation of texture reproduction fidelity in cell-phone photography [3] and other applications.
-Instead of using overalapping circles, the new SDL utilizes Johan Gielis' **superformula** [4] to generating complex random shapes that better resemble overlapping leaves.
+Instead of using overalapping circles, the new SDL utilizes Johan Gielis' **superformula** [4] to generating complex shapes that better resemble overlapping leaves.
+In addition, the formula parameters can be randomly sampled in each lobe of the shape for increased variability and asymmetry.
 The random nature of the shapes is intended to enhance the utility of the pattern for image quality evaluation [5] and for training and testing machine learning-based image post-processing algorithms [6], posing a more substantial challenge than the predictable circular shapes.
   
   - [1] Cao, Frédéric, Frédéric Guichard, and Hervé Hornung. "Dead leaves model for measuring texture quality on a digital camera." In SPIE Digital Photography VI, vol. 7537, pp. 126-133 (2010) (https://doi.org/10.1117/12.838902)
@@ -14,7 +15,7 @@ The random nature of the shapes is intended to enhance the utility of the patter
   - [6] Achddou, Raphaël, Yann Gousseau, and Saïd Ladjal. "Fully synthetic training for image restoration tasks." Computer Vision and Image Understanding 233, 103723 (2023). (https://doi.org/10.1016/j.cviu.2023.103723)
     
 ## Code features
-
+The functions to generate the SDL patterns are encapsulated in the class named SuperDeadLeaves, in the file SuperDeadLeaves.py.
 - _Procedural Texture Generation_: create unlimited leaf-like shapes using the superformula.
 - _Customizable Parameters_: adjust parameters to vary the individual shapes and the complete SDL chart.
 
@@ -24,36 +25,28 @@ The random nature of the shapes is intended to enhance the utility of the patter
 
 ![DL](https://github.com/DIDSR/SuperDeadLeaves/blob/main/media/DL_29277411_animation_Circles_inc250.gif)
 
-- _Digital histopathology_: an extension of SDL algorithm is included to generate a random distribution of isolated shapes that resemble cells (the spacing between the cells and the size of the inner nucleus can be customized).
+- _Digital histopathology_: an example extension of SDL algorithm is included to generate a random distribution of isolated shapes that resemble cells (the spacing between the cells and the size of the inner nucleus can be customized).
 
 ![cellSDL](https://github.com/DIDSR/SuperDeadLeaves/blob/main/media/cell_SDL_39032045_animation.gif)
 
 
 ## Installation
 
-To run the code, install the required Python packages listed in the `requirements.txt` file, and clone the repository:
+To run the code, install the required Python packages and clone the repository:
 
 ```bash
-pip install -r requirements.txt
 git clone https://github.com/DIDSR/SuperDeadLeaves.git
 cd SuperDeadLeaves/
 ```
 
-### Run the Jupyter Notebook locally or on Binder
+### Run the example Jupyter Notebook
 
 Open the `super_dead_leaves_generator.ipynb` notebook in Jupyter to start generating textures:
 
 ```bash
-jupyter notebook super_dead_leaves_generator.ipynb
+jupyter notebook SuperDeadLeaves.ipynb
 ```
 
-
-> [!NOTE]
-> Option not yet available.
-
-You can run this project directly on Binder without installing anything locally. Click the badge below to launch the notebook:
-
-[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/yourusername/super-dead-leaves/main)
 
 
 ## Disclaimer
