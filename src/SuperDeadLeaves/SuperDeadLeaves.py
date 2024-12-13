@@ -95,7 +95,7 @@ class SuperDeadLeaves:
     With appropriate input values, the generated SDL charts can comply with the specifications of ISO-19567-2.
     """
             
-    def __init__(self, image_size=[512,512], seed=None, polygon_range=[2, 9], randomized=True, contrast=1.0, background_color=0.5, num_samples_chart=10000, rmin=0.005, rmax=0.2, borderFree=False):
+    def __init__(self, image_size=[512,512], seed=None, polygon_range=[2, 9], randomized=True, contrast=1.0, background_color=0.5, num_samples_chart=10000, rmin=0.005, rmax=0.2, borderFree=False, PowerLawExp=3):
         """
         Initialize the SuperDeadLeaves class and its superformula parameters.
         
@@ -109,6 +109,7 @@ class SuperDeadLeaves:
             rmin (float): Minimum shape radius (0 to 1).
             rmax (float): Maximum shape radius (0 to 1).
             borderFree (bool): discard shapes touching the border of the image: the default background color will surround the generated patterns.
+            PowerLawExp (float): Exponent of the (inverse) power law probability distribution used to sample the radii of the shapes. Use 3 for scale-invariant patterns: prob. ~ 1/f^3. In practice, the random values are sampled using the related Pareto distribution (scipy.stats.pareto) defined by prob ~ b/f^(b+1).
         """
         # ** Chart parameters:
         self.rng = np.random.default_rng(seed)  # Initialize a local random number generator with the input seed to be able to replicate the chart
@@ -122,21 +123,27 @@ class SuperDeadLeaves:
         self.num_samples_chart = num_samples_chart
         self.rmin = rmin
         self.rmax = rmax
-        self.borderFree = borderFree        
-            
+        self.borderFree = borderFree
+        self.PowerLawExp = PowerLawExp
+
         # ** Default superformula parameters (will be later changed if randomized is True):
+        # NOTE: the default values generate interesting random shapes but were not optimized in any objective way. 
+
         self.m = (polygon_range[0]+polygon_range[1])//2
         self.n1, self.n2, self.n3 = 3.0, 8.0, 4.0
         self.a , self.b = 1.0, 1.0
-        
-        self.num_points_polygon = 2*np.max(image_size)
-        
+               
         # Variability in the random sampling of the parameters in each lobe (0.5 -> randomly modify variable +- 50%)
-        # NOTE: the default values generate interesting random shapes but were not optimized in any objective way. 
         self.variability_n1 = 0.5  
         self.variability_n2 = 0.75
         self.variability_n3 = 0.75       
 
+        self.num_points_polygon = 2*np.max(image_size)  # Resolution of the shape sampling in polar coordinates
+ 
+        # Auxiliar internal parameters for the pattern generation:
+        self.ReportingInterval = 10000   # Report pattern generation stats every time this amount of shapes are generated
+        self.fractionUncovered = 0.0005  # Early termination of the pattern generation (suring a reporting event) when fewer than this fraction of pixels remain uncovered (eg, 0.0005 = 0.05% of pixels uncovered). 
+        
 
         
     def superformula(self, m: int, a: float, b: float, n1: float, n2: float, n3: float, theta: list):
@@ -273,7 +280,7 @@ class SuperDeadLeaves:
         ii_last = 0
         while(ii < self.num_samples_chart):
             # Output information on the phantom generation at regular intervals:
-            if (ii+1)%10000==0 and ii!=ii_last:
+            if (ii+1)%self.ReportingInterval==0 and ii!=ii_last:
                 ii_last = ii  # Do not report again if last shape is being resampled
                 # Check uncovered pixels in the central part of the image (80% of X and Y):
                 central_region_NaN = np.count_nonzero(np.isnan(img[int(0.1*img.shape[0]):int(0.9*img.shape[0]), int(0.1*img.shape[1]):int(0.9*img.shape[1])]))
@@ -286,15 +293,15 @@ class SuperDeadLeaves:
                     rmin_tmp = np.clip(self.rmin*10, 0, self.rmax*0.5)
                     # print(f"   Increasing rmin x10 to {rmin_tmp} to speedup covering the remaining small holes.")
 
-                # Stopping the shape sampling when less 0.02% of the pixels remain uncovered. The final holes will be assigned the input background value:
-                if central_region_NaN_fraction < 0.0002:
+                # Stopping the shape sampling when less fractionUncovered (eg, 0.0002 = 0.02%) of the pixels remain uncovered. The final holes will be assigned the input background value:
+                if central_region_NaN_fraction < self.fractionUncovered:
                     ii = ii+1
                     break
 
             # Sample the radius from power-law dist, ie, a Pareto dist with power exponent - 1. Scaling to the requested rmin, and rejecting values above rmax
             r = np.inf
             while r>self.rmax:
-                r = pareto.rvs(b=(3-1), scale=rmin_tmp, random_state=self.rng)   
+                r = pareto.rvs(b=(self.PowerLawExp-1), scale=rmin_tmp, random_state=self.rng)
             
             #radii.append(r)   # Optionally, store the sampled radii in a list for validating the prob distribution
     
