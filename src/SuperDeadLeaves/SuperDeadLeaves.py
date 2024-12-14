@@ -75,7 +75,7 @@
 import numpy as np
 from time import time
 import random
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw
 from scipy.stats import pareto
 
@@ -104,7 +104,7 @@ class SuperDeadLeaves:
             contrast (float): Controls the contrast of the shapes (0 to 1).
             seed (int): random nunmber generator initialization seed (ie, image ID).
             polygonVertices (int, int): minimum and maximum number of vertices in the sampled polygon. Eg: [3,3]=triangles, [3,4]=triangles and squares. 
-            randomized (bool): randomize the parameters of the superformula to get a variety of shapes
+            randomized (bool): randomize the parameters of the superformula in each lobe to get a variety of shapes (if False, use a single set of random parameters for the entire shape)
             num_samples_chart (int): Number of shapes to be sampled. Should be large enough to cover the entire image.
             rmin (float): Minimum shape radius (0 to 1).
             rmax (float): Maximum shape radius (0 to 1).
@@ -127,7 +127,7 @@ class SuperDeadLeaves:
         self.PowerLawExp = PowerLawExp
 
         # ** Default superformula parameters (will be later changed if randomized is True):
-        # NOTE: the default values generate interesting random shapes but were not optimized in any objective way. 
+        # NOTE: the default values generate interesting random shapes, but were not optimized in any objective way. 
 
         self.m = (polygon_range[0]+polygon_range[1])//2
         self.n1, self.n2, self.n3 = 3.0, 8.0, 4.0
@@ -138,11 +138,13 @@ class SuperDeadLeaves:
         self.variability_n2 = 0.75
         self.variability_n3 = 0.75       
 
-        self.num_points_polygon = 2*np.max(image_size)  # Resolution of the shape sampling in polar coordinates
- 
         # Auxiliar internal parameters for the pattern generation:
         self.ReportingInterval = 10000   # Report pattern generation stats every time this amount of shapes are generated
         self.fractionUncovered = 0.0005  # Early termination of the pattern generation (suring a reporting event) when fewer than this fraction of pixels remain uncovered (eg, 0.0005 = 0.05% of pixels uncovered). 
+
+        self.num_points_polygon = np.max(image_size) + 100  # Resolution of the shape sampling in polar coordinates
+        self.regularPolygon = False   # If True, and randomization=False, use regular polygons as the shapes.
+ 
         
 
         
@@ -178,9 +180,9 @@ class SuperDeadLeaves:
             self.n1, self.n2, self.n3 = 1000.0, 250.0, 250.0
         else:               # Starfish shape
             self.n1, self.n2, self.n3 = 9.0, 25.0, 25.0
-
         return self.n1, self.n2, self.n3
     
+
 
     
     def generate_polygon(self):
@@ -191,26 +193,32 @@ class SuperDeadLeaves:
         """        
         # Generate polar coordinates theta values from 0 to 2*pi
         theta = np.linspace(0.0, 2.0*np.pi, self.num_points_polygon)
-        r = np.zeros_like(theta)
+        r = np.ones_like(theta)   # Init radii array with the default values for circles (radius=1 at every angle)
 
-        if self.randomized==False:
-            nn1, nn2, nn3 = self.set_regular_polygon()
-            
-        # Iterate for each shape lobe:
-        for i in range(self.m):
-            start_angle = i * (2.0*np.pi/self.m)
-            end_angle = (i + 1) * (2.0*np.pi/self.m)
-            angle_range = (theta >= start_angle-1e-7) & (theta <= end_angle+1e-7)
+#        if self.randomized==False:
+#            nn1, nn2, nn3 = self.set_regular_polygon()
 
-            if self.randomized:
-                nn2 = self.n2 + self.n2*(self.rng.uniform(-self.variability_n2, self.variability_n2))
-                nn3 = self.n3 + self.n3*(self.rng.uniform(-self.variability_n3, self.variability_n3))
-                nn1 = self.n1 + self.n1*(self.rng.uniform(-self.variability_n1, self.variability_n1))
-                if np.fabs(nn1)<0.1:
-                    nn1 = 0.1  # Avoid raising to large powers that give infinite r
-                        
-            # Calculate radius for the current list of lobe segment angles:
-            r[angle_range] = self.superformula(self.m, self.a, self.b, nn1, nn2, nn3, theta[angle_range])
+        if self.m>0:  
+            # Using superformula shapes, not circles. Iterate for each shape lobe:
+            for i in range(self.m):
+                start_angle = i * (2.0*np.pi/self.m)
+                end_angle = (i + 1) * (2.0*np.pi/self.m)
+                angle_range = (theta >= start_angle-1e-7) & (theta <= end_angle+1e-7)
+
+                if self.randomized or i==0:
+                    if self.regularPolygon:
+                        # Set parameters that look like regular polygon shapes
+                        nn1, nn2, nn3 = self.set_regular_polygon()   
+                    else:
+                        # Sample a set of superformula parameters using a uniform distribution between the default values and the values times the variability factors.
+                        nn1 = self.n1 + self.n1*(self.rng.uniform(-self.variability_n1, self.variability_n1))
+                        nn2 = self.n2 + self.n2*(self.rng.uniform(-self.variability_n2, self.variability_n2))
+                        nn3 = self.n3 + self.n3*(self.rng.uniform(-self.variability_n3, self.variability_n3))
+                        if np.fabs(nn1)<0.1:
+                            nn1 = 0.1  # Avoid raising to large powers that give infinite r
+                            
+                # Calculate radius for the current list of lobe segment angles:
+                r[angle_range] = self.superformula(self.m, self.a, self.b, nn1, nn2, nn3, theta[angle_range])
                    
         # Convert polar coordinates (r, theta) to Cartesian coordinates (x, y), with a random angular shift to randomize the shape orientation:
         theta0 = self.rng.uniform(0.0, 2.0*np.pi)
@@ -241,9 +249,13 @@ class SuperDeadLeaves:
         # Create a draw object
         draw = ImageDraw.Draw(mask)
 
-        # Calculate the area of the polygon using the Shoelace formula (Trapezoid equation).
-        area_polygon = 0.5 * abs(sum(X_vertex[i] * Y_vertex[i + 1] - Y_vertex[i] * X_vertex[i + 1] for i in range(-1, len(X_vertex) - 1)))
-    
+        if self.m>0:
+            # Calculate the area of the polygon using the Shoelace formula (Trapezoid equation).
+            area_polygon = 0.5 * abs(np.dot(X_vertex, np.roll(Y_vertex, -1)) - np.dot(Y_vertex, np.roll(X_vertex, -1)))  #  numpy-optimized method
+            # area_polygon = 0.5 * abs(sum(X_vertex[i] * Y_vertex[i + 1] - Y_vertex[i] * X_vertex[i + 1] for i in range(-1, len(X_vertex) - 1)))  # Non-optimized version. Very slow for large polygons.
+        else:
+            area_polygon = np.pi   # Circle with radius=1
+
         # Scale the polygon units to the have the same area as if we had sampled a circle, move the origin to the sampled center, and transform to pixel coordinates by truncation:
         scaling_factor = np.sqrt(area_scale/area_polygon)
         nx = ((X_vertex*scaling_factor + x_center) * self.image_size[0]).astype(int)
@@ -498,7 +510,7 @@ def save_image_batch_tiff(image_list, filename):
 # Example generation of a Super Dead Leaves chart using superformula shapes:
 # (Run python with -u option to disable output buffering and see output comments immediately.)
 if __name__ == "__main__":
-
+    import matplotlib.pyplot as plt
     time0 = time()
     image_size = [1024, 1024]  # [1080, 1920]
     seed = np.random.randint(1e4, 1e5)
