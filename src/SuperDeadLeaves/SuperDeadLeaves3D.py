@@ -3,17 +3,17 @@
 # 
 # The SDL3D pattern is a 3D extension of the Super Dead Leaves (SDL) pattern that creates voxelized volume
 # completely filled with overlapping shapes randomly sampled using the superformula. This pattern is inspired
-# by the texture reproduction fidelity chart Dead Leaves (DL) [1], defined in the international standards 
+# by the texture reproduction fidelity chart Dead Leaves (DL) [1], defined in the international standards
 # ISO-19567-2 [2] and IEEE-1858 [3]. 
 # 
-# In the SDL3D, the parameters of two independent superformula [4] 2D shapes are randomly sampled within  
-# the user-requested range of values. The superformula shapes are defined in polar coordinates. 
-# We create a 3D volume in spheric coordinates by utilizing the two 2D shapes as the theta and phi angles, 
-# and setting the shape radius in each direction as the multiplication of the radii of the two superformulas. 
+# In the SDL3D, the parameters of two independent superformula [4] 2D shapes are randomly sampled within
+# the user-requested range of values. The superformula shapes are defined in polar coordinates.
+# We create a 3D volume in spheric coordinates by utilizing the two 2D shapes as the theta and phi angles,
+# and setting the shape radius in each direction as the multiplication of the radii of the two superformulas.
 # Unlike in the SDL pattern, the SDL3D does not (yet) randomize the parameters separately in each lobe.
 #
-# The objective of the SDL3D pattern is to evaluate the performance of non-linear image processing algorithms 
-# and tomographic reconstruction algorithms based on machine-learning techniques, by using multiple 
+# The objective of the SDL3D pattern is to evaluate the performance of non-linear image processing algorithms
+# and tomographic reconstruction algorithms based on machine-learning techniques, by using multiple
 # realizations of these synthetic patterns generated at high-resolution and noise-free as a full-reference [5].
 #
 # ** References**
@@ -32,20 +32,20 @@
 # 
 # **Disclaimer**
 #    This software and documentation (the "Software") were developed at the US Food and Drug Administration
-#    (FDA) by employees of the Federal Government in the course of their official duties. 
+#    (FDA) by employees of the Federal Government in the course of their official duties.
 #    Pursuant to Title 17, Section 105 of 
 #    the United States Code, this work is not subject to copyright protection and is in the public domain.
 #    Permission is hereby granted, free of charge, to any person obtaining a copy of the Software, to
-#    deal in the Software without restriction, including without limitation the rights to use, copy, 
-#    modify, merge, publish, distribute, sublicense, or sell copies of the Software or derivatives, and 
-#    to permit persons to whom the Software is furnished to do so. 
+#    deal in the Software without restriction, including without limitation the rights to use, copy,
+#    modify, merge, publish, distribute, sublicense, or sell copies of the Software or derivatives, and
+#    to permit persons to whom the Software is furnished to do so.
 #    FDA assumes no responsibility whatsoever for use by other parties of the Software, its source code,
-#    documentation or compiled executables, and makes no guarantees, expressed or implied, about its 
-#    quality, reliability, or any other characteristic. Further, use of this code in no way implies 
+#    documentation or compiled executables, and makes no guarantees, expressed or implied, about its
+#    quality, reliability, or any other characteristic. Further, use of this code in no way implies
 #    endorsement by the FDA or confers any advantage in regulatory decisions. Although this software
-#    can be redistributed and/or modified freely, we ask that any derivative works bear some notice that 
+#    can be redistributed and/or modified freely, we ask that any derivative works bear some notice that
 #    they are derived from it, and any modified versions bear some notice that they have been modified.
-#        
+#    
 # -------------
 
 #########################################################################################
@@ -56,12 +56,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import pareto
 
+
 class SuperDeadLeaves3D:
-    def __init__(self, vol_size, seed=None,
+    def __init__(self, vol_size=[150, 150, 150], seed=None,
                  a_range=(0.5, 1.5), b_range=(0.5, 1.5),
                  m_range1=(3, 8), m_range2=(3, 8), n1_range=(0.5, 5.0),
                  n2_range=(0.5, 5.0), n3_range=(0.5, 5.0), phase_range=(0.0, 360.0),
-                 rmin=0.015, rmax=0.15, PowerLawExp=3):
+                 rmin=0.015, rmax=0.15, PowerLawExp=3, num_shape_samples=113):
         """
         Initialize the SuperDeadLeaves3D generator.
 
@@ -99,13 +100,13 @@ class SuperDeadLeaves3D:
         self.phase_range = phase_range
 
         # Initialize superformula parameters as members
-        self.a = None
-        self.b = None
-        self.m = None
-        self.n1 = None
-        self.n2 = None
-        self.n3 = None
-        self.phase = None
+        self.a = [1.0, 1.0]
+        self.b = [1.0, 1.0]
+        self.m = [4.0, 6.0]
+        self.n1 = [2.0, 2.0]
+        self.n2 = [1.0, 1.0]
+        self.n3 = [1.0, 1.0]
+        self.phase = [0.0, 0.0]
 
         # Power law shape distribution parameters:
         self.PowerLawExp = PowerLawExp
@@ -113,10 +114,9 @@ class SuperDeadLeaves3D:
         self.rmax = rmax
 
         # Pre-compute uniform points on a sphere (using the Fibonacci sphere algorithm) to estimate the shape size:
-        num_Fibonacci_points = 113
-        indices = np.arange(0, num_Fibonacci_points, dtype=float) + 0.5
-        self.phi_Fibonacci   = np.arccos(1 - 2*indices/num_Fibonacci_points)
-        self.theta_Fibonacci =  np.pi * (1 + 5**0.5) * indices
+        indices = np.arange(0, num_shape_samples, dtype=float) + 0.5
+        self.phi_Fibonacci = np.arccos(1 - 2*indices/num_shape_samples)
+        self.theta_Fibonacci = np.pi * (1 + 5**0.5) * indices
 
     def gielis_superformula(self, theta, phi):
         """
@@ -155,19 +155,32 @@ class SuperDeadLeaves3D:
         """
         Sample two sets of random superformula parameters and store them as internal class members.
         """
-        self.a  = [self.rng.uniform(*self.a_range),  self.rng.uniform(*self.a_range)]
-        self.b  = [self.rng.uniform(*self.b_range),  self.rng.uniform(*self.b_range)]
+        self.a  = [self.rng.uniform(*self.a_range),    self.rng.uniform(*self.a_range)]
+        self.b  = [self.rng.uniform(*self.b_range),    self.rng.uniform(*self.b_range)]
         self.m  = [self.rng.integers(self.m_range1[0], self.m_range1[1]+1), self.rng.integers(self.m_range2[0], self.m_range2[1]+1)]
-        self.n1 = [self.rng.uniform(*self.n1_range), self.rng.uniform(*self.n1_range)]
+        self.n1 = [self.rng.uniform(*self.n1_range), self.rng.uniform(*self.n1_range)]        
         self.n2 = [self.rng.uniform(*self.n2_range), self.rng.uniform(*self.n2_range)]
         self.n3 = [self.rng.uniform(*self.n3_range), self.rng.uniform(*self.n3_range)]
         self.phase = [np.radians(self.rng.uniform(*self.phase_range)), np.radians(self.rng.uniform(*self.phase_range))]
 
-    def estimate_shape_size(self):
+        # Optional code to prevent generating exponents between -1 and 1 with range values from negative to positive:
+        if self.n1_range[0]<0.1 and self.n1_range[1]>-0.1:
+            self.n1 = [np.where(np.abs(x) < 1, self.rng.uniform(1, 3), x) for x in self.n1]
+        if self.n2_range[0]<0.1 and self.n2_range[1]>-0.1:
+            self.n2 = [np.where(np.abs(x) < 1, self.rng.uniform(1, 3), x) for x in self.n2]
+        if self.n3_range[0]<0.1 and self.n3_range[1]>-0.1:
+            self.n3 = [np.where(np.abs(x) < 1, self.rng.uniform(1, 3), x) for x in self.n3]
+
+    def estimate_shape_size(self, visualize=False):
         """
         Estimate the minimum, maximum, and average radius of the superformula shape by
         sampling the radius at many points uniformly distributed on the surface of a sphere.
         The angles of these points are precomputed at the class constructor.
+
+        Parameters
+        ----------
+        visualize : bool
+            If True, visualize the sampled points on the sphere using a 3D scatter plot.
 
         Returns
         -------
@@ -177,6 +190,19 @@ class SuperDeadLeaves3D:
         # Compute the superformula radii for points in many directions:
         r_theta, r_phi = self.gielis_superformula(self.theta_Fibonacci, self.phi_Fibonacci)
         radii = r_theta * r_phi
+
+        if visualize:
+            x = radii * np.sin(self.phi_Fibonacci) * np.cos(self.theta_Fibonacci)
+            y = radii * np.sin(self.phi_Fibonacci) * np.sin(self.theta_Fibonacci)
+            z = radii * np.cos(self.phi_Fibonacci)
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection='3d')            
+            ax.scatter(x, y, z, c=np.arange(0, len(x)), cmap='viridis', marker='.', s=20)  # 'o'
+            ax.set_xlabel('X')
+            ax.set_ylabel('Y')
+            ax.set_zlabel('Z')
+            plt.show()
+
         return np.min(radii), np.max(radii), np.mean(radii)
 
     def add_shape(self, volume, shape_number, scaling_factor, center_x, center_y, center_z, max_radius):
@@ -235,14 +261,14 @@ class SuperDeadLeaves3D:
 
         return volume
 
-    def generate(self, max_shapes=10000, verbose=False, enumerate_shapes=True):
+    def generate(self, max_shapes=65500, verbose=False, enumerate_shapes=True):
         """
         Generate a 3D volume filled with superformula shapes until no empty voxels remain or until max_shapes is reached.
 
         Parameters
         ----------
         max_shapes : int
-            Maximum number of shapes to generate.           
+            Maximum number of shapes to generate.    
         verbose : bool
             If True, print progress updates and accelerate the final part of the pattern generation.
         enumerate_shapes: bool
@@ -335,31 +361,28 @@ class SuperDeadLeaves3D:
 
         return volume
 
-
-
         # TODO: code function to convert the uint16 voxel values into random float32 values (0,1)
         # def convert_to_float32(volume):
 
 
 #########################################################################################
-
 if __name__ == "__main__":
     # ** Example script to generate a 3D volume filled with random superformula shapes using the SuperDeadLeaves3D stochastic model.
- 
+
     # Step 1: Define the volume size
-    vol_size = [150, 150, 150]   # [512, 512, 512]
-    
+    vol_size = [500, 500, 500]   # [512, 512, 512]
+
     # Step 2: Initialize the SuperDeadLeaves3D generator
     seed = np.random.randint(1e4, 1e5)  # Use None for a random initialization
     print(f"\n ** SuperDeadLeaves3D generator initialized with seed={seed} **\n")
     print(f"   Volume size set to: {vol_size}")
 
-    SDL3D = SuperDeadLeaves3D(vol_size, seed=seed, a_range=(1.0, 1.0), b_range=(1.0, 1.0), m_range1=(2, 5), m_range2=(2, 3), n1_range=(1, 4), n2_range=(5, 9), n3_range=(2, 5), rmin=0.015)
-    
+    SDL3D = SuperDeadLeaves3D(vol_size, seed=seed, a_range=(1.0, 1.0), b_range=(1.0, 1.0), m_range1=(2, 6), m_range2=(2, 4), n1_range=(1, 4), n2_range=(5, 9), n3_range=(2, 5), rmin=0.02)
+
     # Note: set m_range1 and m_range2 to (2,2) to generate circular blobs.
 
     # Step 3: Generate the volume
-    max_shapes = 50000
+    max_shapes = 5000 # 50000
     print(f"   Starting volume generation with up to {max_shapes} shapes...")
     start_time = time.time()  # Record start time    
 
@@ -396,3 +419,18 @@ if __name__ == "__main__":
     plt.colorbar(label="Shape Index")
     plt.tight_layout()
     plt.show()
+
+    # Step 7: Display the projection of the volume along the X axis
+    plt.imshow(volume.mean(axis=0), cmap='nipy_spectral', origin='lower', interpolation='bilinear') # 'nearest'
+    plt.title(f"Projection along X-axis")
+    plt.colorbar(label="Shape Index")
+    plt.tight_layout()
+    plt.show()
+
+    # Step 8: show sample shapes
+    SDL3D.sample_superformula_params()
+    SDL3D.estimate_shape_size(visualize=True)
+
+    SDL3D.sample_superformula_params()
+    SDL3D.m = [9,9]
+    SDL3D.estimate_shape_size(visualize=True)
