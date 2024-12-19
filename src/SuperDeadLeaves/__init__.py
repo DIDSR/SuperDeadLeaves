@@ -1,2 +1,2 @@
 from .SuperDeadLeaves import SuperDeadLeaves
-from .SuperDeadLeaves import SuperDeadLeaves3D
+from .SuperDeadLeaves3D import SuperDeadLeaves3D
