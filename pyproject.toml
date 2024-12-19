@@ -2,7 +2,7 @@
 name = "SuperDeadLeaves"
 version = "0.0.1"
 authors = [
-  {name="Andreu Badal", email="Andreu.Badal(a)fda.hhs.gov"},
+  {name="Andreu Badal", email="Andreu.Badal@fda.hhs.gov"},
 ]
 description = """
 Extension of the texture reproduction fidelity chart Dead Leaves using the _superformula_ to generate a variety of random shapes resembling leaves with multiple lobes.
