@@ -106,19 +106,17 @@ class SuperDeadLeaves3D:
         self.n2 = None
         self.n3 = None
         self.phase = None
-        
+
         # Power law shape distribution parameters:
         self.PowerLawExp = PowerLawExp
         self.rmin = rmin
         self.rmax = rmax
-            
+
         # Pre-compute uniform points on a sphere (using the Fibonacci sphere algorithm) to estimate the shape size:
         num_Fibonacci_points = 113
         indices = np.arange(0, num_Fibonacci_points, dtype=float) + 0.5
         self.phi_Fibonacci   = np.arccos(1 - 2*indices/num_Fibonacci_points)
         self.theta_Fibonacci =  np.pi * (1 + 5**0.5) * indices
-        
-        
 
     def gielis_superformula(self, theta, phi):
         """
@@ -136,13 +134,11 @@ class SuperDeadLeaves3D:
         """
         r_theta = np.power(np.power(np.abs(np.cos(self.m[0] * theta/4.0).astype(np.float32) / self.a[0]), self.n2[0]) +
                            np.power(np.abs(np.sin(self.m[0] * theta/4.0).astype(np.float32) / self.b[0]), self.n3[0]), -1.0/self.n1[0]).astype(np.float32)
-                           
+
         r_phi  = np.power(np.power(np.abs(np.cos(self.m[1] * phi/4.0).astype(np.float32) / self.a[1]), self.n2[1]) +
                            np.power(np.abs(np.sin(self.m[1] * phi/4.0).astype(np.float32) / self.b[1]), self.n3[1]), -1.0/self.n1[1]).astype(np.float32)
-        
+
         return r_theta, r_phi
-
-
 
     def spherical_coordinates(self, X, Y, Z):
         """
@@ -153,10 +149,7 @@ class SuperDeadLeaves3D:
         with np.errstate(divide='ignore', invalid='ignore'):
             theta = np.where(r > 0, np.arccos(Z / r).astype(np.float32), 0.0)
         phi = np.arctan2(Y, X).astype(np.float32)
-        
         return r, theta, phi
-
-
 
     def sample_superformula_params(self):
         """
@@ -169,9 +162,7 @@ class SuperDeadLeaves3D:
         self.n2 = [self.rng.uniform(*self.n2_range), self.rng.uniform(*self.n2_range)]
         self.n3 = [self.rng.uniform(*self.n3_range), self.rng.uniform(*self.n3_range)]
         self.phase = [np.radians(self.rng.uniform(*self.phase_range)), np.radians(self.rng.uniform(*self.phase_range))]
-        
-        
-        
+
     def estimate_shape_size(self):
         """
         Estimate the minimum, maximum, and average radius of the superformula shape by
@@ -186,10 +177,7 @@ class SuperDeadLeaves3D:
         # Compute the superformula radii for points in many directions:
         r_theta, r_phi = self.gielis_superformula(self.theta_Fibonacci, self.phi_Fibonacci)
         radii = r_theta * r_phi
-        
         return np.min(radii), np.max(radii), np.mean(radii)
-
-
 
     def add_shape(self, volume, shape_number, scaling_factor, center_x, center_y, center_z, max_radius):
         """
@@ -243,13 +231,11 @@ class SuperDeadLeaves3D:
         inside_mask = (r <= R_gielis) & (volume[x_min:x_max, y_min:y_max, z_min:z_max] == 0)
 
         # Fill the voxels inside the shape
-        volume[x_min:x_max, y_min:y_max, z_min:z_max][inside_mask] = min(shape_number, np.iinfo(np.uint16).max)  # prevent overflow (>65535)
+        volume[x_min:x_max, y_min:y_max, z_min:z_max][inside_mask] = shape_number
 
         return volume
 
-
-
-    def generate(self, max_shapes=10000, verbose=False):
+    def generate(self, max_shapes=10000, verbose=False, enumerate_shapes=True):
         """
         Generate a 3D volume filled with superformula shapes until no empty voxels remain or until max_shapes is reached.
 
@@ -259,6 +245,8 @@ class SuperDeadLeaves3D:
             Maximum number of shapes to generate.           
         verbose : bool
             If True, print progress updates and accelerate the final part of the pattern generation.
+        enumerate_shapes: bool
+            If True, each shape as a unique integer value, if false, then uniform floats in the range [0, 1]
 
         Returns
         -------
@@ -266,7 +254,8 @@ class SuperDeadLeaves3D:
             Generated 3D volume pattern where each voxel is either 0 (empty) or contains the integer index of the shape that filled it.
         """
         # Declare the empty volume array:
-        volume = np.zeros(self.vol_size, dtype=np.uint16)
+        dtype = np.uint16 if enumerate_shapes else float
+        volume = np.zeros(self.vol_size, dtype=dtype)
 
         total_voxels = np.prod(self.vol_size)
         empty_voxels = total_voxels
@@ -286,7 +275,7 @@ class SuperDeadLeaves3D:
 
             # Sample parameters for the next shape
             self.sample_superformula_params()
-            
+
             min_radius, max_radius, mean_radius = self.estimate_shape_size()
 
             # Sample shape center, including a margin for shapes starting outside the volume (in each side):           
@@ -294,36 +283,41 @@ class SuperDeadLeaves3D:
             cx = self.rng.uniform(-self.vol_size[0]*out_fraction, (self.vol_size[0] - 1) + self.vol_size[0]*out_fraction)
             cy = self.rng.uniform(-self.vol_size[1]*out_fraction, (self.vol_size[1] - 1) + self.vol_size[1]*out_fraction)
             cz = self.rng.uniform(-self.vol_size[2]*out_fraction, (self.vol_size[2] - 1) + self.vol_size[2]*out_fraction)
-           
+
             # Sample the radius from an inverse power-law distribution (ie, Pareto dist with power exponent - 1) with the input min and max size:
             r = np.inf
             while r>self.rmax:
                 r = pareto.rvs(b=(self.PowerLawExp-1), scale=rmin, random_state=self.rng)
-          
+
             # Scale the shape so that the mean radius is equal to the sampled fraction of the image (X axis width)
             scaling_factor = r * self.vol_size[0] / mean_radius  
-            
+
             # Add the shape to the volume
-            self.add_shape(volume, shape_number, scaling_factor, cx, cy, cz, max_radius)
+            if enumerate_shapes:
+                shape_value = min(shape_number, np.iinfo(np.uint16).max)
+            else:
+                shape_value = self.rng.random()
+            volume = self.add_shape(volume, shape_value, scaling_factor, cx,
+                                    cy, cz, max_radius)
 
             # Count empty voxels before and after adding the shape
             before_empty = empty_voxels
-            after_empty = np.count_nonzero(volume == 0)
+            after_empty = np.count_nonzero(volume == 0) # <-- check this line
             empty_voxels = after_empty
 
             # Verbose output and various tricks
             if verbose and shape_number % verbose_interval == 0:
                 print(f"Shape {shape_number}: Filled {total_voxels - empty_voxels}/{total_voxels} voxels = {100*(total_voxels-empty_voxels)/total_voxels:6.3f}%. Runtime: {time.time()-time0:.2f} s.")
-                
+
                 # Speedup the ending when only few sparse holes remain, by generating larger shapes (mostly covered by previous shapes):
                 if empty_voxels < (total_voxels * speedup_threshold):
                     rmin = min(rmin*2, self.rmax/2)
                     speedup_threshold = speedup_threshold/2
-                    
+
                 if empty_voxels < total_voxels/2 and tmp_file is True:
                     tmp_file = False
                     tifffile.imwrite("tmp_50percent_complete.tif", volume.transpose(2,0,1)[np.newaxis, :, np.newaxis, :, :], imagej=True)
-                    
+
             # Check if no progress was made (to stop early)
             if before_empty == after_empty:
                 no_progress_count += 1
@@ -338,7 +332,7 @@ class SuperDeadLeaves3D:
 
         if shape_number > np.iinfo(np.uint16).max:
             print(f" ... WARNING: {shape_number}>{np.iinfo(np.uint16).max}: to prevent overflow of the uint16 counters, all voxels covered by the final shapes share the max value of {np.iinfo(np.uint16).max}.")
-            
+
         return volume
 
 
