@@ -51,16 +51,24 @@
 #########################################################################################
 
 import time
-import tifffile
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import pareto
 
 class SuperDeadLeaves3D:
+    """"
+    SuperDeadLeaves3D is a class designed to generate a 3D volume filled with shapes based on the Gielis superformula.
+    The complex stochastic patterns generated have a fractal, non-Gaussian structure. The design is inspired by the texture 
+    reproduction fidelity chart Dead Leaves used for texture fidelity evaluation in photography. 
+    The class provides methods to convert Cartesian coordinates to spherical coordinates, compute superformula radii 
+    for given angles, and iteratively fill a 3D volume with these shapes until maximum shapes are reached
+    or the volume is filled. This can be used for simulations, procedural generation, and modeling in a 3D space.
+    """
+
     def __init__(self, vol_size=[150, 150, 150], seed=None,
-                 a_range=(0.5, 1.5), b_range=(0.5, 1.5),
-                 m_range1=(3, 8), m_range2=(3, 8), n1_range=(0.5, 5.0),
-                 n2_range=(0.5, 5.0), n3_range=(0.5, 5.0), phase_range=(0.0, 360.0),
+                 a_range=[0.75, 1.25], b_range=[0.75, 1.25],
+                 m_range1=[3, 8], m_range2=[3, 8], n1_range=[1.0, 5.0],
+                 n2_range=[1.0, 5.0], n3_range=[1.0, 5.0], phase_range=[0.0, 360.0],
                  rmin=0.015, rmax=0.15, PowerLawExp=3, num_shape_samples=113):
         """
         Initialize the SuperDeadLeaves3D generator.
@@ -71,13 +79,13 @@ class SuperDeadLeaves3D:
             Dimensions of the 3D volume [L, M, N].
         seed : int or None
             Random seed for reproducibility (None for random initialization).
-        a_range, b_range : tuple
+        a_range, b_range : list
             Ranges for a and b parameters of the superformula.
-        m_range1, m_range2 : tuple
+        m_range1, m_range2 : list
             Range for m parameter (number of lobes) in the two sampled superformulas. Use [2,2] for circles.
-        n1_range, n2_range, n3_range : tuple
-            Ranges for n1, n2, n3 parameters.
-        phase_range : tuple
+        n1_range, n2_range, n3_range : list
+            Ranges for n1, n2, n3 parameters (safe to use negative values).
+        phase_range : list
             Range for phase shift (in degrees) to randomize the shape orientation in 3D.
         rmin, rmax : float
             Minimum and maximum shape radius for the inverse power law sampling. A value of 1 corresponds to the full width of the volume (X axis).
@@ -103,8 +111,8 @@ class SuperDeadLeaves3D:
         self.b = [1.0, 1.0]
         self.m = [4.0, 6.0]
         self.n1 = [2.0, 2.0]
-        self.n2 = [1.0, 1.0]
-        self.n3 = [1.0, 1.0]
+        self.n2 = [3.0, 4.0]
+        self.n3 = [5.0, 6.0]
         self.phase = [0.0, 0.0]
         
         # Power law shape distribution parameters:
@@ -122,6 +130,7 @@ class SuperDeadLeaves3D:
     def gielis_superformula(self, theta, phi):
         """
         Compute the 3D Gielis superformula radius for the two given pair of angles theta and phi.
+        Calculation performed in float32 and using np.errstate to handle divide-by-zero and other invalid operations.
 
         Parameters
         ----------
@@ -133,14 +142,21 @@ class SuperDeadLeaves3D:
         r_theta, r_phi : ndarray
             Computed radius for the two superformulas.
         """
-        r_theta = np.power(np.power(np.abs(np.cos(self.m[0] * theta/4.0).astype(np.float32) / self.a[0]), self.n2[0]) +
-                           np.power(np.abs(np.sin(self.m[0] * theta/4.0).astype(np.float32) / self.b[0]), self.n3[0]), -1.0/self.n1[0]).astype(np.float32)
-                           
-        r_phi  = np.power(np.power(np.abs(np.cos(self.m[1] * phi/4.0).astype(np.float32) / self.a[1]), self.n2[1]) +
-                           np.power(np.abs(np.sin(self.m[1] * phi/4.0).astype(np.float32) / self.b[1]), self.n3[1]), -1.0/self.n1[1]).astype(np.float32)
-        
-        return r_theta, r_phi
+        with np.errstate(divide='ignore', invalid='ignore', over='ignore'):
 
+            if self.m[0] != 0:                
+                r_theta = np.power(np.power(np.abs(np.cos(self.m[0] * theta/4.0).astype(np.float32) / self.a[0]), self.n2[0]) +
+                          np.power(np.abs(np.sin(self.m[0] * theta/4.0).astype(np.float32) / self.b[0]), self.n3[0]), -1.0/self.n1[0]).astype(np.float32)
+            else:
+                r_theta = np.ones_like(theta).astype(np.float32)
+                                        
+            if self.m[1] != 0:                
+                r_phi  = np.power(np.power(np.abs(np.cos(self.m[1] * phi/4.0).astype(np.float32) / self.a[1]), self.n2[1]) +
+                         np.power(np.abs(np.sin(self.m[1] * phi/4.0).astype(np.float32) / self.b[1]), self.n3[1]), -1.0/self.n1[1]).astype(np.float32)
+            else:
+                r_phi  = np.ones_like(phi).astype(np.float32)
+
+        return r_theta, r_phi
 
 
     def spherical_coordinates(self, X, Y, Z):
@@ -156,7 +172,6 @@ class SuperDeadLeaves3D:
         return r, theta, phi
 
 
-
     def sample_superformula_params(self):
         """
         Sample two sets of random superformula parameters and store them as internal class members.
@@ -169,14 +184,9 @@ class SuperDeadLeaves3D:
         self.n3 = [self.rng.uniform(*self.n3_range), self.rng.uniform(*self.n3_range)]
         self.phase = [np.radians(self.rng.uniform(*self.phase_range)), np.radians(self.rng.uniform(*self.phase_range))]
 
-        # Optional code to prevent generating exponents between -1 and 1 with range values from negative to positive:
+        # Optional code to prevent generating n1 exponents between -0.5 and 0.5 when range varies from negative to positive:
         if self.n1_range[0]<0.1 and self.n1_range[1]>-0.1:
-            self.n1 = [np.where(np.abs(x) < 1, self.rng.uniform(1, 3), x) for x in self.n1]
-        if self.n2_range[0]<0.1 and self.n2_range[1]>-0.1:
-            self.n2 = [np.where(np.abs(x) < 1, self.rng.uniform(1, 3), x) for x in self.n2]
-        if self.n3_range[0]<0.1 and self.n3_range[1]>-0.1:
-            self.n3 = [np.where(np.abs(x) < 1, self.rng.uniform(1, 3), x) for x in self.n3]
-        
+            self.n1 = [np.where(np.abs(x) < 0.5, self.rng.uniform(1, 3), x) for x in self.n1]
         
         
     def estimate_shape_size(self, visualize=False):
@@ -188,7 +198,7 @@ class SuperDeadLeaves3D:
         Parameters
         ----------
         visualize : bool
-            If True, visualize the sampled points on the sphere using a 3D scatter plot.
+            If True, visualize the sampled points on the sphere using a 3D scatter plot, and report the superformula parameters.
 
         Returns
         -------
@@ -200,6 +210,8 @@ class SuperDeadLeaves3D:
         radii = r_theta * r_phi
 
         if visualize:
+            print(f"     Superformula parameter: a={self.a[0]:.2f}, {self.a[1]:.2f}; b={self.b[0]:.2f}, {self.b[1]:.2f}; m={self.m[0]}, {self.m[1]}; n1={self.n1[0]:.2f}, {self.n1[1]:.2f}; n2={self.n2[0]:.2f}, {self.n2[1]:.2f}; n3={self.n3[0]:.2f}, {self.n3[1]:.2f};")
+            print(f"                             phase={np.degrees(self.phase[0]):.2f}, {np.degrees(self.phase[1]):.2f}; num_Fibonacci_samples={len(radii)}")
             x = radii * np.sin(self.phi_Fibonacci) * np.cos(self.theta_Fibonacci)
             y = radii * np.sin(self.phi_Fibonacci) * np.sin(self.theta_Fibonacci)
             z = radii * np.cos(self.phi_Fibonacci)
@@ -214,22 +226,22 @@ class SuperDeadLeaves3D:
         return np.min(radii), np.max(radii), np.mean(radii)
 
 
-
     def add_shape(self, volume, shape_number, scaling_factor, center_x, center_y, center_z, max_radius):
         """
         Add a newly sampled 3D shape to the SDL3D volume, with the existing shapes occluding the new ones.
-        The algorithm defines a bounding box for the new shape (based on the estimated max radius), centered at the shape origin. 
-        The coordinates of the centers of every voxel are transformed from Cartesian to spherical coordinate system, and their 
-        theta and phi angles are fed to the superformula (with a random phase shift) to compute the radius of the shape in that 
-        direction. After rescaling the shape radius with the sampled scaling factor, we can detect the voxels covered by the 
-        shape comparing each voxel radius to the shape radius. This calculation is performed using efficient numpy array slicing.
-        Finally, the voxels that are inside the shape and that are not covered (value still 0) are set to the new shape number as 
-        an unsigned integer, 16-bit (maximum value set to 65535).
+        The algorithm starts by defining a bounding box for the new shape (based on the estimated max radius) centered at the shape origin.
+        The coordinates of the centers of every voxel in the bounding box are then transformed from Cartesian to spherical coordinates,
+        and their theta and phi angles are fed to the superformula (with a random phase shift) to compute the radius of the shape in that 
+        voxel. After rescaling the shape radius with the sampled scaling factor, we detect the voxels covered by the shape 
+        by comparing each voxel radius to the shape radius. This calculation is performed using efficient numpy array slicing.
+        Finally, the voxels that are inside the shape and that are not covered (value still 0) are set to either the new shape number, if the volume 
+        is of type 16-bit unsigned integer, or to a floating-point random value between 0 and 1 otherwise.
 
         Parameters
         ----------
         volume : numpy.ndarray
-            3D volume to add the shape to.
+            3D volume to add the shape to. Can be of type np.uint16 or floating point.
+            The function call modifies this input volume in place, it is not explicitly returned.
         shape_number : int
             Number of the shape to add.
         scaling_factor : float
@@ -239,20 +251,15 @@ class SuperDeadLeaves3D:
         max_radius : float
             Maximum radius of the shape.
         """
-        # Define the bounding box for the shape, adding a margin to the estimates max_radius
-        margin = 1.15
-        x_min, x_max = max(0, int(center_x - max_radius * scaling_factor * margin)), max(min(self.vol_size[0], int(center_x + max_radius * scaling_factor * margin) + 1), 0)  # 3)
-        y_min, y_max = max(0, int(center_y - max_radius * scaling_factor * margin)), max(min(self.vol_size[1], int(center_y + max_radius * scaling_factor * margin) + 1), 0)  # 3)
-        z_min, z_max = max(0, int(center_z - max_radius * scaling_factor * margin)), max(min(self.vol_size[2], int(center_z + max_radius * scaling_factor * margin) + 1), 0)  # 3)
+        # Define the bounding box for the shape, adding a margin account for a possible underestimation of the max_radius
+        margin = 1.10
+        x_min, x_max = max(0, int(center_x - max_radius * scaling_factor * margin)), max(min(self.vol_size[0], int(center_x + max_radius * scaling_factor * margin) + 1), 0)
+        y_min, y_max = max(0, int(center_y - max_radius * scaling_factor * margin)), max(min(self.vol_size[1], int(center_y + max_radius * scaling_factor * margin) + 1), 0)
+        z_min, z_max = max(0, int(center_z - max_radius * scaling_factor * margin)), max(min(self.vol_size[2], int(center_z + max_radius * scaling_factor * margin) + 1), 0)
 
-        # Create a meshgrid for the bounding box
-        x_range = np.arange(x_min, x_max)
-        y_range = np.arange(y_min, y_max)
-        z_range = np.arange(z_min, z_max)
-        X, Y, Z = np.meshgrid(x_range, y_range, z_range, indexing='ij')
-
-        # Convert to spherical coordinates
-        Xc, Yc, Zc = (X - center_x).astype(np.float32), (Y - center_y).astype(np.float32), (Z - center_z).astype(np.float32)
+        # Create a meshgrid for the bounding box, center it at the shape origin, and convert the center of every voxel to spherical coordinates
+        X, Y, Z = np.meshgrid(np.arange(x_min, x_max), np.arange(y_min, y_max), np.arange(z_min, z_max), indexing='ij')
+        Xc, Yc, Zc = (X + 0.5 - center_x).astype(np.float32), (Y + 0.5 - center_y).astype(np.float32), (Z + 0.5 - center_z).astype(np.float32)
         r, theta, phi = self.spherical_coordinates(Xc, Yc, Zc)
 
         # Apply phase shift to randomize the shape orientation in 3D
@@ -263,34 +270,39 @@ class SuperDeadLeaves3D:
         r_theta, r_phi = self.gielis_superformula(theta, phi)
         R_gielis = (r_theta * r_phi) * scaling_factor
 
-        # Determine which voxels are inside the shape and are still empty
-        inside_mask = (r <= R_gielis) & (volume[x_min:x_max, y_min:y_max, z_min:z_max] == 0)
+        # Determine which voxels are inside the shape and still empty
+        inside_mask = (r <= R_gielis) & (volume[x_min:x_max, y_min:y_max, z_min:z_max] < 1)
 
         # Fill the voxels inside the shape
-        volume[x_min:x_max, y_min:y_max, z_min:z_max][inside_mask] = min(shape_number, np.iinfo(np.uint16).max)  # prevent overflow (>65535)
+        if volume.dtype == np.uint16:
+            volume[x_min:x_max, y_min:y_max, z_min:z_max][inside_mask] = min(shape_number, np.iinfo(np.uint16).max)   # avoid overflow when adding more than 65535 shapes
+        else:
+            volume[x_min:x_max, y_min:y_max, z_min:z_max][inside_mask] = self.rng.random()
 
-        return volume
+        # return volume   # No need to return anything, because input variable volume is changed in place
 
 
-
-    def generate(self, max_shapes=65500, verbose=False):
+    def generate(self, max_shapes=65500, enumerate_shapes=False, verbose=False):
         """
         Generate a 3D volume filled with superformula shapes until no empty voxels remain or until max_shapes is reached.
 
         Parameters
         ----------
         max_shapes : int
-            Maximum number of shapes to generate.           
+            Maximum number of shapes to generate.
+        enumerate_shapes: bool
+            If True, each shape has a unique integer value (uint16 volume); if false, then uniform random floats in the range [0, 1] are assigned to each shape (float32 volume).
         verbose : bool
             If True, print progress updates and accelerate the final part of the pattern generation.
 
         Returns
         -------
-        volume : ndarray (np.uint16)
-            Generated 3D volume pattern where each voxel is either 0 (empty) or contains the integer index of the shape that filled it.
+        volume : ndarray (np.uint16 or np.float32)
+            Generated 3D volume with overlapping shapes. Uncovered voxels are set to 0. Covered voxels are set to the integer index of the shape that filled them for uint16 type, or a random number between 0 and 1 for float32 type.
         """
         # Declare the empty volume array:
-        volume = np.zeros(self.vol_size, dtype=np.uint16)
+        dtype = np.uint16 if enumerate_shapes else np.float32
+        volume = np.zeros(self.vol_size, dtype=dtype)
 
         total_voxels = np.prod(self.vol_size)
         empty_voxels = total_voxels
@@ -299,7 +311,6 @@ class SuperDeadLeaves3D:
         speedup_threshold = 6.0/100.0  # Increase rmin when less than this fraction of voxels are uncovered, to speedup the ending
         rmin = self.rmin
         verbose_interval = 500
-        tmp_file = False  # Set to True to output the volume at 50% complete
 
         time0 = time.time()
         for shape_number in range(1, max_shapes + 1):
@@ -337,16 +348,12 @@ class SuperDeadLeaves3D:
 
             # Verbose output and various tricks
             if verbose and shape_number % verbose_interval == 0:
-                print(f"Shape {shape_number}: Filled {total_voxels - empty_voxels}/{total_voxels} voxels = {100*(total_voxels-empty_voxels)/total_voxels:6.3f}%. Runtime: {time.time()-time0:.2f} s.")
+                print(f"     Shape {shape_number}: Filled {total_voxels - empty_voxels}/{total_voxels} voxels = {100*(total_voxels-empty_voxels)/total_voxels:6.3f}%. Runtime: {time.time()-time0:.2f} s.")
                 
                 # Speedup the ending when only few sparse holes remain, by generating larger shapes (mostly covered by previous shapes):
                 if empty_voxels < (total_voxels * speedup_threshold):
                     rmin = min(rmin*2, self.rmax/2)
                     speedup_threshold = speedup_threshold/2
-                    
-                if empty_voxels < total_voxels/2 and tmp_file is True:
-                    tmp_file = False
-                    tifffile.imwrite("tmp_50percent_complete.tif", volume.transpose(2,0,1)[np.newaxis, :, np.newaxis, :, :], imagej=True)
                     
             # Check if no progress was made (to stop early)
             if before_empty == after_empty:
@@ -360,44 +367,52 @@ class SuperDeadLeaves3D:
                 self.final_shapes = shape_number
                 break
 
-        if shape_number > np.iinfo(np.uint16).max:
+        if enumerate_shapes and shape_number>np.iinfo(np.uint16).max:
             print(f" ... WARNING: {shape_number}>{np.iinfo(np.uint16).max}: to prevent overflow of the uint16 counters, all voxels covered by the final shapes share the max value of {np.iinfo(np.uint16).max}.")
             
         return volume
+    
 
-
-
-        # TODO: code function to convert the uint16 voxel values into random float32 values (0,1)
-        # def convert_to_float32(volume):
+    def report(self):
+        """
+        Report the value and type of the internal class variables (for long arrays, limit to the first elements).
+        """
+        print("\n   SuperDeadLeaves3D class instance variables:")
+        attributes = vars(self)
+        for attr_name, value in attributes.items():
+            print(f"       - {attr_name} = {value[:4] if isinstance(value, (list, tuple, np.ndarray)) else value},\t type={type(value)}")
+        print("\n")
 
 
 #########################################################################################
 
+
 if __name__ == "__main__":
+    import tifffile
+
     # ** Example script to generate a 3D volume filled with random superformula shapes using the SuperDeadLeaves3D stochastic model.
  
     # Step 1: Define the volume size
-    vol_size = [500, 500, 500]   # [512, 512, 512]
+    vol_size = [150, 150, 150]
     
     # Step 2: Initialize the SuperDeadLeaves3D generator
     seed = np.random.randint(1e4, 1e5)  # Use None for a random initialization
-    print(f"\n ** SuperDeadLeaves3D generator initialized with seed={seed} **\n")
-    print(f"   Volume size set to: {vol_size}")
-
-    SDL3D = SuperDeadLeaves3D(vol_size, seed=seed, a_range=(1.0, 1.0), b_range=(1.0, 1.0), m_range1=(2, 6), m_range2=(2, 4), n1_range=(1, 4), n2_range=(5, 9), n3_range=(2, 5), rmin=0.02)
+    print(f"\n ** SuperDeadLeaves3D generator initialized with seed={seed} and volume size={vol_size} **\n")
     
-    # Note: set m_range1 and m_range2 to (2,2) to generate circular blobs.
+    SDL3D = SuperDeadLeaves3D(vol_size, seed=seed, m_range1=[2, 6], m_range2=[2, 4], n1_range=[2, 5], n2_range=[5, 9], n3_range=[2, 5], rmin=0.01)
+    # Note: set m_range1 and m_range2 to [2,2] to generate circular blobs, or [0,0] for spheres
+    SDL3D.report()
 
     # Step 3: Generate the volume
-    max_shapes = 5000 # 50000
+    max_shapes = 10000
     print(f"   Starting volume generation with up to {max_shapes} shapes...")
     start_time = time.time()  # Record start time    
 
-    volume = SDL3D.generate(max_shapes=max_shapes, verbose=True)  
+    volume = SDL3D.generate(max_shapes=max_shapes, enumerate_shapes=False, verbose=True)  
 
     end_time = time.time()  # Record end time
     generation_time = end_time - start_time
-    print(f"   Volume generation completed in {generation_time:.2f} sec ({SDL3D.final_shapes/generation_time:2f} shapes/sec).")
+    print(f"\n   Volume generation completed in {generation_time:.2f} sec ({SDL3D.final_shapes/generation_time:2f} shapes/sec).")
 
     # Step 4: Export the volume as a multi-page TIFF file with the correct axis order for ImageJ (TZCYX)
     output_file = f"SuperDeadLeaves3D_Shapes_{seed}_shapes{SDL3D.final_shapes}_rmin{SDL3D.rmin}_{vol_size[0]}x{vol_size[1]}x{vol_size[2]}.tif"
@@ -412,14 +427,14 @@ if __name__ == "__main__":
     total_voxels  = np.prod(vol_size)  # Total voxels in the volume
 
     print(f"\n   Volume Statistics (volume.shape={volume.shape}):")
-    print(f"     Total Voxels: {total_voxels}")
-    print(f"     Filled Voxels: {filled_voxels}")
-    print(f"     Unique Shapes: {unique_shapes}")
-    print(f"     Percentage Filled: {filled_voxels / total_voxels * 100:.2f}%")
+    print(  f"     Total Voxels: {total_voxels}")
+    print(  f"     Filled Voxels: {filled_voxels}")
+    print(  f"     Unique Shapes: {unique_shapes}")
+    print(  f"     Percentage Filled: {filled_voxels / total_voxels * 100:.2f}%")
     
     # Step 6: Display the central Z slice
     mid_slice = vol_size[2] // 2  # Middle slice index along Z-axis
-    print(f"   Displaying central slice Z={mid_slice}")
+    print(f"\n   Displaying central slice Z={mid_slice}")
     plt.figure(figsize=(8, 8))
     plt.imshow(volume[:, :, mid_slice], cmap='nipy_spectral', origin='lower', interpolation='nearest')
     plt.title(f"Central Slice Z={mid_slice}")
@@ -427,17 +442,15 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.show()
 
-    # Step 7: Display the projection of the volume along the X axis
-    plt.imshow(volume.mean(axis=0), cmap='nipy_spectral', origin='lower', interpolation='bilinear') # 'nearest'
-    plt.title(f"Projection along X-axis")
-    plt.colorbar(label="Shape Index")
-    plt.tight_layout()
-    plt.show()
+    # Step 7: Display the projection of the volume along the Z axis
+    if volume.shape[2] > 1:        
+        plt.imshow(volume.mean(axis=2), cmap='bone', origin='lower', interpolation='bilinear')  # 'nipy_spectral'
+        plt.title(f"Projection along Z-axis")
+        plt.tight_layout()
+        plt.show()
 
     # Step 8: show sample shapes
+    SDL3D = SuperDeadLeaves3D(num_shape_samples=5000)
     SDL3D.sample_superformula_params()
-    SDL3D.estimate_shape_size(visualize=True)
-
-    SDL3D.sample_superformula_params()
-    SDL3D.m = [9,9]
-    SDL3D.estimate_shape_size(visualize=True)
+    print("\n   Visualization of a 3D superformula shape, as it is sampled in the code to estimate its size:")
+    print( f"     Estimated min, max and mean radii = {np.ravel(SDL3D.estimate_shape_size(visualize=True))}\n")
