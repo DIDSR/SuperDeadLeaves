@@ -107,7 +107,7 @@ class SuperDeadLeaves3D:
         self.n2 = [1.0, 1.0]
         self.n3 = [1.0, 1.0]
         self.phase = [0.0, 0.0]
-
+        
         # Power law shape distribution parameters:
         self.PowerLawExp = PowerLawExp
         self.rmin = rmin
@@ -115,8 +115,10 @@ class SuperDeadLeaves3D:
 
         # Pre-compute uniform points on a sphere (using the Fibonacci sphere algorithm) to estimate the shape size:
         indices = np.arange(0, num_shape_samples, dtype=float) + 0.5
-        self.phi_Fibonacci = np.arccos(1 - 2*indices/num_shape_samples)
-        self.theta_Fibonacci = np.pi * (1 + 5**0.5) * indices
+        self.phi_Fibonacci   = np.arccos(1 - 2*indices/num_shape_samples)
+        self.theta_Fibonacci =  np.pi * (1 + 5**0.5) * indices
+        
+        
 
     def gielis_superformula(self, theta, phi):
         """
@@ -170,7 +172,9 @@ class SuperDeadLeaves3D:
             self.n2 = [np.where(np.abs(x) < 1, self.rng.uniform(1, 3), x) for x in self.n2]
         if self.n3_range[0]<0.1 and self.n3_range[1]>-0.1:
             self.n3 = [np.where(np.abs(x) < 1, self.rng.uniform(1, 3), x) for x in self.n3]
-
+        
+        
+        
     def estimate_shape_size(self, visualize=False):
         """
         Estimate the minimum, maximum, and average radius of the superformula shape by
@@ -190,6 +194,20 @@ class SuperDeadLeaves3D:
         # Compute the superformula radii for points in many directions:
         r_theta, r_phi = self.gielis_superformula(self.theta_Fibonacci, self.phi_Fibonacci)
         radii = r_theta * r_phi
+
+        if visualize:
+            x = radii * np.sin(self.phi_Fibonacci) * np.cos(self.theta_Fibonacci)
+            y = radii * np.sin(self.phi_Fibonacci) * np.sin(self.theta_Fibonacci)
+            z = radii * np.cos(self.phi_Fibonacci)
+            fig = plt.figure()
+            ax = fig.add_subplot(111, projection='3d')            
+            ax.scatter(x, y, z, c=np.arange(0, len(x)), cmap='viridis', marker='.', s=20)  # 'o'
+            ax.set_xlabel('X')
+            ax.set_ylabel('Y')
+            ax.set_zlabel('Z')
+            plt.show()
+
+        return np.min(radii), np.max(radii), np.mean(radii)
 
         if visualize:
             x = radii * np.sin(self.phi_Fibonacci) * np.cos(self.theta_Fibonacci)
@@ -261,7 +279,13 @@ class SuperDeadLeaves3D:
 
         return volume
 
+<<<<<<< HEAD
     def generate(self, max_shapes=65500, verbose=False, enumerate_shapes=True):
+=======
+
+
+    def generate(self, max_shapes=65500, verbose=False):
+>>>>>>> eee20d76d6544ee96dcdead60ae01fcce4283155
         """
         Generate a 3D volume filled with superformula shapes until no empty voxels remain or until max_shapes is reached.
 
@@ -371,14 +395,14 @@ if __name__ == "__main__":
 
     # Step 1: Define the volume size
     vol_size = [500, 500, 500]   # [512, 512, 512]
-
+    
     # Step 2: Initialize the SuperDeadLeaves3D generator
     seed = np.random.randint(1e4, 1e5)  # Use None for a random initialization
     print(f"\n ** SuperDeadLeaves3D generator initialized with seed={seed} **\n")
     print(f"   Volume size set to: {vol_size}")
 
     SDL3D = SuperDeadLeaves3D(vol_size, seed=seed, a_range=(1.0, 1.0), b_range=(1.0, 1.0), m_range1=(2, 6), m_range2=(2, 4), n1_range=(1, 4), n2_range=(5, 9), n3_range=(2, 5), rmin=0.02)
-
+    
     # Note: set m_range1 and m_range2 to (2,2) to generate circular blobs.
 
     # Step 3: Generate the volume
