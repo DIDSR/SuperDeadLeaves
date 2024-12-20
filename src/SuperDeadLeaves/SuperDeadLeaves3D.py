@@ -279,13 +279,7 @@ class SuperDeadLeaves3D:
 
         return volume
 
-<<<<<<< HEAD
     def generate(self, max_shapes=65500, verbose=False, enumerate_shapes=True):
-=======
-
-
-    def generate(self, max_shapes=65500, verbose=False):
->>>>>>> eee20d76d6544ee96dcdead60ae01fcce4283155
         """
         Generate a 3D volume filled with superformula shapes until no empty voxels remain or until max_shapes is reached.
 
@@ -395,14 +389,14 @@ if __name__ == "__main__":
 
     # Step 1: Define the volume size
     vol_size = [500, 500, 500]   # [512, 512, 512]
-    
+
     # Step 2: Initialize the SuperDeadLeaves3D generator
     seed = np.random.randint(1e4, 1e5)  # Use None for a random initialization
     print(f"\n ** SuperDeadLeaves3D generator initialized with seed={seed} **\n")
     print(f"   Volume size set to: {vol_size}")
 
     SDL3D = SuperDeadLeaves3D(vol_size, seed=seed, a_range=(1.0, 1.0), b_range=(1.0, 1.0), m_range1=(2, 6), m_range2=(2, 4), n1_range=(1, 4), n2_range=(5, 9), n3_range=(2, 5), rmin=0.02)
-    
+
     # Note: set m_range1 and m_range2 to (2,2) to generate circular blobs.
 
     # Step 3: Generate the volume
@@ -433,7 +427,7 @@ if __name__ == "__main__":
     print(f"     Filled Voxels: {filled_voxels}")
     print(f"     Unique Shapes: {unique_shapes}")
     print(f"     Percentage Filled: {filled_voxels / total_voxels * 100:.2f}%")
-    
+
     # Step 6: Display the central Z slice
     mid_slice = vol_size[2] // 2  # Middle slice index along Z-axis
     print(f"   Displaying central slice Z={mid_slice}")
