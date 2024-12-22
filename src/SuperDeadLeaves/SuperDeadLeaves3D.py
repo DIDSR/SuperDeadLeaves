@@ -69,7 +69,7 @@ class SuperDeadLeaves3D:
                  a_range=[0.75, 1.25], b_range=[0.75, 1.25],
                  m_range1=[3, 8], m_range2=[3, 8], n1_range=[1.0, 5.0],
                  n2_range=[1.0, 5.0], n3_range=[1.0, 5.0], phase_range=[0.0, 360.0],
-                 rmin=0.015, rmax=0.15, PowerLawExp=3, num_shape_samples=113):
+                 rmin=0.015, rmax=0.15, PowerLawExp=3, num_shape_samples=71):
         """
         Initialize the SuperDeadLeaves3D generator.
 
@@ -251,20 +251,25 @@ class SuperDeadLeaves3D:
         max_radius : float
             Maximum radius of the shape.
         overlap_factor : float
-            If >0: factor to rescale the shape radius to create an exclusion zone with no overlap between shapes (a value of 1.0 allows shapes to touch).
+            If >0: factor to rescale the shape max_radius to create an exclusion zone with no overlap between shapes (a value of 1.0 allows shapes to touch).
         nucleus_fraction : float
             If > 0: create a central replica of the shape (of size radius*nucleus_fraction) that resembles a cell nucleus in a cytology image.
         """
         eps = 1.0e-40
-        self.overlap_factor = overlap_factor   # Save input parameter in the class
+
+        # RECTANGULAR EXCLUSION ZONE (much faster than scaling the actual shape):
+        if overlap_factor > eps:
+            self.overlap_factor = overlap_factor   # Save input parameter in the class
+            # Check if there is any shape already inside a RECTANGULAR EXCLUSION ZONE around the new shape center:            
+            x_min, x_max = max(0, int(center_x - max_radius * scaling_factor * overlap_factor)), max(min(self.vol_size[0], int(center_x + max_radius * scaling_factor * overlap_factor) + 1), 0)
+            y_min, y_max = max(0, int(center_y - max_radius * scaling_factor * overlap_factor)), max(min(self.vol_size[1], int(center_y + max_radius * scaling_factor * overlap_factor) + 1), 0)
+            z_min, z_max = max(0, int(center_z - max_radius * scaling_factor * overlap_factor)), max(min(self.vol_size[2], int(center_z + max_radius * scaling_factor * overlap_factor) + 1), 0)
+            if (volume[x_min:x_max, y_min:y_max, z_min:z_max]>0).any():
+                return   # Reject shape!
 
 
         # Define the bounding box volume-of-interest (VOI) for the shape, adding a margin to account for underestimation of the max_radius
         margin = 1.10
-
-        if overlap_factor > eps:            
-            margin = max(margin, overlap_factor)   # Need to check voxels far from the shape for possible overlapping. WARNING: large margins will be slow to compute!!
-
         x_min, x_max = max(0, int(center_x - max_radius * scaling_factor * margin)), max(min(self.vol_size[0], int(center_x + max_radius * scaling_factor * margin) + 1), 0)
         y_min, y_max = max(0, int(center_y - max_radius * scaling_factor * margin)), max(min(self.vol_size[1], int(center_y + max_radius * scaling_factor * margin) + 1), 0)
         z_min, z_max = max(0, int(center_z - max_radius * scaling_factor * margin)), max(min(self.vol_size[2], int(center_z + max_radius * scaling_factor * margin) + 1), 0)
@@ -272,17 +277,14 @@ class SuperDeadLeaves3D:
         # Create a meshgrid for the bounding box: we will check if the center of each voxel is inside or outside the shape:
         X, Y, Z = np.meshgrid(np.arange(x_min, x_max), np.arange(y_min, y_max), np.arange(z_min, z_max), indexing='ij')
 
-        if overlap_factor < eps:
-            # Create a mask with voxels that are not yet covered and potentially covered by the new shape (ie, value==0):
-            potential_shape_mask = (volume[x_min:x_max, y_min:y_max, z_min:z_max] == 0)  # Select only uncovered voxels  !!WARNING!! might be comparing a float to 0 (to avoid casting uint16)
-            Xc = (X[potential_shape_mask] + 0.5 - center_x).astype(np.float32)  # This is now a 1D array with ONLY the voxels that not yet covered (minimizing calls to gielis_superformula)
-            Yc = (Y[potential_shape_mask] + 0.5 - center_y).astype(np.float32)
-            Zc = (Z[potential_shape_mask] + 0.5 - center_z).astype(np.float32)
-        else:
-            # No masking can be used when we need to enforce empty space between shapes (all voxels equally important)
-            Xc = (X + 0.5 - center_x).astype(np.float32)
-            Yc = (Y + 0.5 - center_y).astype(np.float32)
-            Zc = (Z + 0.5 - center_z).astype(np.float32)
+        # Create a mask with voxels that are not yet covered and potentially covered by the new shape (ie, value==0):
+        potential_shape_mask = (volume[x_min:x_max, y_min:y_max, z_min:z_max] == 0)  # Select only uncovered voxels  !!WARNING!! might be comparing a float to 0 (to avoid casting uint16)
+        if not potential_shape_mask.any():
+            # Reject the shape at once if zero voxels are available at that location, for that max_size:
+            return
+        Xc = (X[potential_shape_mask] + 0.5 - center_x).astype(np.float32)  # This is now a 1D array with ONLY the voxels that not yet covered (minimizing calls to gielis_superformula)
+        Yc = (Y[potential_shape_mask] + 0.5 - center_y).astype(np.float32)
+        Zc = (Z[potential_shape_mask] + 0.5 - center_z).astype(np.float32)
 
         # Convert to voxel centers to spherical coordinates, and add the sampled phase to randomize the shape orientation:
         r_voxel, theta, phi = self.spherical_coordinates(Xc, Yc, Zc)
@@ -293,19 +295,12 @@ class SuperDeadLeaves3D:
         r_theta, r_phi = self.gielis_superformula(theta, phi)
         R_gielis = (r_theta * r_phi) * scaling_factor
 
-        if overlap_factor < eps:
-            # Determine which of the pre-filtered voxels are actually inside the shape.
-            inside_mask_filtered = (r_voxel <= R_gielis)
+        # Determine which of the pre-filtered voxels are actually inside the shape.
+        inside_mask_filtered = (r_voxel < R_gielis)
 
-            # Create a mask to update the original volume, combining pre-filtering covered voxels and Gielis-based filtering with the new shape:
-            inside_mask = np.zeros_like(volume[x_min:x_max, y_min:y_max, z_min:z_max], dtype=bool)
-            inside_mask[potential_shape_mask] = inside_mask_filtered   # This step puts the reduced values (1D) in the proper location inside the bigger volume
-
-        else:
-            if ((r_voxel < (R_gielis*overlap_factor)) & (volume[x_min:x_max, y_min:y_max, z_min:z_max]>0)).any():
-                # No overlap allowed within the exclusion zone: reject shape!
-                return
-            inside_mask = (r_voxel <= R_gielis)  # Select voxels inside the shape (already checked no overlapping above)
+        # Create a mask to update the original volume, combining pre-filtering covered voxels and Gielis-based filtering with the new shape:
+        inside_mask = np.zeros_like(volume[x_min:x_max, y_min:y_max, z_min:z_max], dtype=bool)
+        inside_mask[potential_shape_mask] = inside_mask_filtered   # This step puts the reduced values (1D) in the proper location inside the bigger volume
 
         # Fill the voxels inside the shape
         if volume.dtype == np.uint16:
@@ -315,7 +310,9 @@ class SuperDeadLeaves3D:
 
         if nucleus_fraction > eps:
             # Add a central nucleus to the shape:
-            inside_mask = (r_voxel < R_gielis*nucleus_fraction) 
+            inside_mask_filtered = (r_voxel < R_gielis*nucleus_fraction)
+            #inside_mask = np.zeros_like(volume[x_min:x_max, y_min:y_max, z_min:z_max], dtype=bool)
+            inside_mask[potential_shape_mask] = inside_mask_filtered
             volume[x_min:x_max, y_min:y_max, z_min:z_max][inside_mask] /= 2
 
 
@@ -349,7 +346,7 @@ class SuperDeadLeaves3D:
         total_voxels = np.prod(self.vol_size)
         empty_voxels = total_voxels
         no_progress_count = 0
-        no_progress_limit = 200
+        no_progress_limit = 300
         speedup_threshold = 5.0/100.0  # Increase rmin when less than this fraction of voxels are uncovered, to speedup the ending
         rmin = self.rmin
         verbose_interval = 500
