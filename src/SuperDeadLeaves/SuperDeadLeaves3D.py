@@ -346,7 +346,7 @@ class SuperDeadLeaves3D:
         total_voxels = np.prod(self.vol_size)
         empty_voxels = total_voxels
         no_progress_count = 0
-        no_progress_limit = 300
+        no_progress_limit = 500
         speedup_threshold = 5.0/100.0  # Increase rmin when less than this fraction of voxels are uncovered, to speedup the ending
         rmin = self.rmin
         verbose_interval = 500
@@ -428,6 +428,39 @@ class SuperDeadLeaves3D:
             print(f"       - {attr_name} = {value[:4] if isinstance(value, (list, tuple, np.ndarray)) else value},\t type={type(value)}")
         print("\n")
 
+    def borderFree(volume):
+        """
+        Processes a 3D numpy array representing a volume by modifying surface voxels
+        and setting connected voxels with matching values to zero.
+
+        Parameters:
+        - volume (np.ndarray): A 3D numpy array representing the volume.
+
+        Returns:
+        - np.ndarray: The processed volume with modified voxel values.
+        """
+        # Define the dimensions of the volume
+        depth, height, width = volume.shape
+        
+        # Check for surface voxels on each face of the volume
+        for z in range(depth):  # Front and back faces
+            for y in range(height):
+                for x in range(width):
+                    # Surface check for each face
+                    if (z == 0 or z == depth-1 or 
+                        y == 0 or y == height-1 or 
+                        x == 0 or x == width-1):
+                        
+                        # If the voxel value > 0
+                        if volume[z, y, x] > 0:
+                            value_to_remove = volume[z, y, x]
+                            
+                            # Set all voxels with the same value to 0
+                            volume[volume == value_to_remove] = 0
+        
+        return volume
+
+volume0 = borderFree(volume.copy())  # Use the copy option if I want to get a new volume; without it, input volume will be modified. 
 
 
 
