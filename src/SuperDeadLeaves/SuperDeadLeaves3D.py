@@ -430,13 +430,18 @@ class SuperDeadLeaves3D:
 
     def borderFree(volume):
         """
-        Processes a 3D numpy array representing a volume by modifying surface voxels
-        and setting connected voxels with matching values to zero.
+        Processes a 3D numpy array volume to eliminate (set to 0) the voxels of any
+        shape that touches the boundary of the volume.
+        This auxiliar funcion is mostly useful for making nice volume rendering without shapes
+        cut in half by the bounding box. It might also help to tile volumes without discontiniuties 
+        (but with a gap between tiles).
+        The function modifies the input array in place. If you want to keep the original volume, send a copy 
+        to the function and asign the return value to a new variable:  volume0 = borderFree(volume.copy())  
 
         Parameters:
-        - volume (np.ndarray): A 3D numpy array representing the volume.
+        - volume (np.ndarray): A 3D numpy array representing the volume. The voxel values will be modified in place.
 
-        Returns:
+        Return (optional):
         - np.ndarray: The processed volume with modified voxel values.
         """
         # Define the dimensions of the volume
@@ -459,9 +464,7 @@ class SuperDeadLeaves3D:
                             volume[volume == value_to_remove] = 0
         
         return volume
-
-volume0 = borderFree(volume.copy())  # Use the copy option if I want to get a new volume; without it, input volume will be modified. 
-
+    
 
 
 
