@@ -10,6 +10,10 @@
 # the user-requested range of values. The superformula shapes are defined in polar coordinates. 
 # We create a 3D volume in spheric coordinates by utilizing the two 2D shapes as the theta and phi angles, 
 # and setting the shape radius in each direction as the multiplication of the radii of the two superformulas. 
+# To avoid artifacts at the top and bottom poles (at polar angle 0 and 180, where all azimuthal values are valid 
+# in a single point) the radii are multiplied by a squared sinusoidal weighting factor that forces a smooth 
+# transition towards the poles (the radius at the equator is r_phi[phi]*r_theta[90], while at the top pole is 
+# r_theta[0]*mean(r_phi)).
 # Unlike in the SDL pattern, the SDL3D does not (yet) randomize the parameters separately in each lobe.
 #
 # The objective of the SDL3D pattern is to evaluate the performance of non-linear image processing algorithms 
@@ -54,6 +58,7 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import pareto
+from skimage.transform import downscale_local_mean   # Library only necessary if I want to downsample a volume with function downsample_volume
 
 class SuperDeadLeaves3D:
     """"
@@ -66,10 +71,10 @@ class SuperDeadLeaves3D:
     """
 
     def __init__(self, vol_size=[150, 150, 150], seed=None,
-                 a_range=[0.75, 1.25], b_range=[0.75, 1.25],
+                 a_range=[1.0, 1.0], b_range=[1.0, 1.0],
                  m_range1=[3, 8], m_range2=[3, 8], n1_range=[1.0, 5.0],
-                 n2_range=[1.0, 5.0], n3_range=[1.0, 5.0], phase_range=[0.0, 360.0],
-                 rmin=0.015, rmax=0.15, PowerLawExp=3, num_shape_samples=71):
+                 n2_range=[1.0, 5.0], n3_range=[1.0, 5.0],
+                 rmin=0.015, rmax=0.15, PowerLawExp=3, num_shape_samples=71, spheric_target_r=-1, spheric_target_coord=None):
         """
         Initialize the SuperDeadLeaves3D generator.
 
@@ -80,19 +85,26 @@ class SuperDeadLeaves3D:
         seed : int or None
             Random seed for reproducibility (None for random initialization).
         a_range, b_range : list
-            Ranges for a and b parameters of the superformula.
+            Ranges for a and b parameters of the superformula. If not equal to 1, the resulting shapes might have discontinuities.
         m_range1, m_range2 : list
-            Range for m parameter (number of lobes) in the two sampled superformulas. Use [2,2] for circles.
+            Range for m parameter (number of lobes) in the two sampled superformulas. Use [2,2] for circular blobs, [0,0] for spheres. The first superformula defines the polar profile, and the second the azimuthal profile.
         n1_range, n2_range, n3_range : list
             Ranges for n1, n2, n3 parameters (safe to use negative values).
-        phase_range : list
-            Range for phase shift (in degrees) to randomize the shape orientation in 3D.
         rmin, rmax : float
             Minimum and maximum shape radius for the inverse power law sampling. A value of 1 corresponds to the full width of the volume (X axis).
         PowerLawExp : float
             Exponent of the (inverse) power law probability distribution (prob. ~ 1/f^x) used to sample the radii of the shapes (3 gives scale-invariant patterns in 2D).
+        num_shape_samples : int
+            Number of points to sample (using the Fibonacci uniform sphere sampling algorithm) to estimate each shape size. Fewer points will cause more variability in the estimation and the final size distribution might be a less perfect power law. But more points slow down the execution. Use few points for shapes that don't have a lot of irregularities (like blobs), and a single point for spheres.
+        spheric_target_r, spheric_target_coord: float and list
+            If radius > 0, insert a sphere of the given radius at the input relative coordinates (in units of a fraction of the X axis size). Using random coordinates if none provided. This option is useful for detection and shape discrimination tasks.
         """
-        self.vol_size = vol_size
+
+               
+        if len(vol_size) == 2:
+            self.vol_size = [vol_size[0], vol_size[1], 1]   # Allow a 2D input for the 3D model
+        else:
+            self.vol_size = vol_size
         self.final_shapes = 0
         self.rng = np.random.default_rng(seed)
 
@@ -104,43 +116,50 @@ class SuperDeadLeaves3D:
         self.n1_range = n1_range
         self.n2_range = n2_range
         self.n3_range = n3_range
-        self.phase_range = phase_range
 
-        # Initialize superformula parameters as members
-        self.a = [1.0, 1.0]
-        self.b = [1.0, 1.0]
-        self.m = [4.0, 6.0]
-        self.n1 = [2.0, 2.0]
-        self.n2 = [3.0, 4.0]
-        self.n3 = [5.0, 6.0]
-        self.phase = [0.0, 0.0]
+        # Initialize superformula parameters as class members
+        self.a  = [a_range[0],  a_range[0]]
+        self.b  = [b_range[0],  b_range[0]]
+        self.m  = [m_range1[0], m_range2[1]]
+        self.n1 = [n1_range[0], n1_range[0]]
+        self.n2 = [n2_range[0], n2_range[0]]
+        self.n3 = [n3_range[0], n3_range[0]]
+        self.theta0 = 0.0    # Random phase offset for the polar superformula profile, to avoid starting with a lobe on the pole
         
         # Power law shape distribution parameters:
         self.PowerLawExp = PowerLawExp
         self.rmin = rmin
         self.rmax = max(rmax, rmin*1.01)   # Make sure rmax > rmin, or we will get stuck in infinite loop
+
+        # Option to insert a sphere of the given radius at the input relative coordinates (disabled if radius < 0):   !!sphere!!
+        self.spheric_target_r = min(spheric_target_r, 0.5)
+        if spheric_target_r > 0 and spheric_target_coord is None:
+            # Sample a random location for the inserted sphere inside the bounding box
+            self.spheric_target_coord = [self.rng.uniform(self.spheric_target_r, 1-self.spheric_target_r), self.rng.uniform(self.spheric_target_r, 1-self.spheric_target_r), self.rng.uniform(self.spheric_target_r, 1-self.spheric_target_r)]
             
         # Pre-compute uniform points on a sphere (using the Fibonacci sphere algorithm) to estimate the shape size:
         indices = np.arange(0, num_shape_samples, dtype=float) + 0.5
-        self.phi_Fibonacci   = np.arccos(1 - 2*indices/num_shape_samples)
-        self.theta_Fibonacci =  np.pi * (1 + 5**0.5) * indices
+        self.theta_Fibonacci = np.arccos(1 - 2*indices/num_shape_samples)
+        self.phi_Fibonacci   = np.pi * (1 + 5**0.5) * indices
         
-        
+
 
     def gielis_superformula(self, theta, phi):
         """
         Compute the 3D Gielis superformula radius for the two given pair of angles theta and phi.
         Calculation performed in float32 and using np.errstate to handle divide-by-zero and other invalid operations.
+        The first superformula defines the polar profile, and the second the azimuthal profile.
+        If m==0, then the output is a sphere and we simply return 1 for each angle.
 
         Parameters
         ----------
         theta, phi : ndarray
-            Pairs of azimuthal and polar angle coordinates for the two superformula shapes.
+            Pairs of polar and azimuthal angle arrays for the two superformula shapes.
 
         Returns
         -------
         r_theta, r_phi : ndarray
-            Computed radius for the two superformulas.
+            Computed radius for the two separate superformulas.
         """
         with np.errstate(divide='ignore', invalid='ignore', over='ignore'):
 
@@ -182,7 +201,21 @@ class SuperDeadLeaves3D:
         self.n1 = [self.rng.uniform(*self.n1_range), self.rng.uniform(*self.n1_range)]        
         self.n2 = [self.rng.uniform(*self.n2_range), self.rng.uniform(*self.n2_range)]
         self.n3 = [self.rng.uniform(*self.n3_range), self.rng.uniform(*self.n3_range)]
-        self.phase = [np.radians(self.rng.uniform(*self.phase_range)), np.radians(self.rng.uniform(*self.phase_range))]
+        self.theta0 = self.rng.uniform(0, np.pi)
+
+        if self.vol_size[2] == 1:   # Requesting a 2D pattern
+            self.m[0] = 0.0         #   Use a simple circle for the unused polar profile            
+            
+        # If requested, insert a sphere inside the pattern:   !!sphere!!
+        if self.spheric_target_r > 0.0:
+            self.m = [0, 0]
+            
+            if self.m_range1[1]<2 and self.m_range2[1]<2:   # Exception: if the pattern contains only spheres, then insert hexagonal shape
+                self.m, self.n1, self.n2, self.n3 = [6, 6], [2.5, 2.5], [1, 1], [1, 1]   # Hexagon
+                #self.m, self.n1, self.n2, self.n3 = [6, 6], [1000, 1000], [250, 250], [250, 250]   # Octagon
+                #self.m, self.n1, self.n2, self.n3 = [9, 9], [   9,    9], [ 25,  25], [ 25,  25]   # Starfish shape
+                print(f"     - Inserting an hexagonal target among spheres: m={self.m[0]}, n1={self.n1[0]}, n2={self.n2[0]}, n3={self.n3[0]}")
+
 
         # Optional code to prevent generating n1 exponents between -0.5 and 0.5 when range varies from negative to positive:
         if self.n1_range[0]<0.1 and self.n1_range[1]>-0.1:
@@ -206,15 +239,20 @@ class SuperDeadLeaves3D:
             Minimum, maximum, and average radius found.
         """
         # Compute the superformula radii for points in many directions:
-        r_theta, r_phi = self.gielis_superformula(self.theta_Fibonacci, self.phi_Fibonacci)
-        radii = r_theta * r_phi
+        r_theta, r_phi = self.gielis_superformula(self.theta_Fibonacci + self.theta0, self.phi_Fibonacci)
+
+        # Combine the two radii with a sinusoidal squared weighting factor for a smooth transition towards the pole, where we use the mean value of r_theta (otherwise all azimuthal values are possible at polar angle = 0 or pi):
+        weight = np.sin(self.theta_Fibonacci)**2
+        mean_r_phi = np.mean(r_phi)
+        radii = weight*r_theta*r_phi + (1-weight)*r_theta*mean_r_phi 
+          # PREVIOUS VERSION: radii = r_theta * r_phi
 
         if visualize:
-            print(f"     Superformula parameter: a={self.a[0]:.2f}, {self.a[1]:.2f}; b={self.b[0]:.2f}, {self.b[1]:.2f}; m={self.m[0]}, {self.m[1]}; n1={self.n1[0]:.2f}, {self.n1[1]:.2f}; n2={self.n2[0]:.2f}, {self.n2[1]:.2f}; n3={self.n3[0]:.2f}, {self.n3[1]:.2f};")
-            print(f"                             phase={np.degrees(self.phase[0]):.2f}, {np.degrees(self.phase[1]):.2f}; num_Fibonacci_samples={len(radii)}")
-            x = radii * np.sin(self.phi_Fibonacci) * np.cos(self.theta_Fibonacci)
-            y = radii * np.sin(self.phi_Fibonacci) * np.sin(self.theta_Fibonacci)
-            z = radii * np.cos(self.phi_Fibonacci)
+            print(f"     [estimate_shape_size] 3D superformula parameters: a={self.a[0]:.2f}, {self.a[1]:.2f}; b={self.b[0]:.2f}, {self.b[1]:.2f}; m={self.m[0]}, {self.m[1]}; n1={self.n1[0]:.2f}, {self.n1[1]:.2f}; n2={self.n2[0]:.2f}, {self.n2[1]:.2f}; n3={self.n3[0]:.2f}, {self.n3[1]:.2f}")
+            print(f"                           Shape radius sampled with {len(radii)} Fibonacci points: mean={np.mean(radii)}, min={np.min(radii)}, max={np.max(radii)}")
+            x = radii * np.sin(self.theta_Fibonacci) * np.cos(self.phi_Fibonacci)
+            y = radii * np.sin(self.theta_Fibonacci) * np.sin(self.phi_Fibonacci)
+            z = radii * np.cos(self.theta_Fibonacci)
             fig = plt.figure()
             ax = fig.add_subplot(111, projection='3d')            
             ax.scatter(x, y, z, c=np.arange(0, len(x)), cmap='viridis', marker='.', s=20)  # 'o'
@@ -226,14 +264,34 @@ class SuperDeadLeaves3D:
         return np.min(radii), np.max(radii), np.mean(radii)
 
 
+    def __random_quaternion_rotation(self, Xc, Yc, Zc, u):
+        """
+        Rotate the input cartesian coordinate arrays (Xc, Yc, Zc) using Ken Shoemake's quaternion-based uniform rotation method. 
+        The 3D random rotation is defined by the input array with 3 uniform random numbers.
+        This private function is used to randomize the orientation of the added shapes in 3D.
+        """
+        w = np.sqrt(1 - u[0]) * np.sin(2 * np.pi * u[1])
+        x = np.sqrt(1 - u[0]) * np.cos(2 * np.pi * u[1])
+        y = np.sqrt(u[0]) * np.sin(2 * np.pi * u[2])
+        z = np.sqrt(u[0]) * np.cos(2 * np.pi * u[2])
+
+        # Directly apply quaternion rotation to Xc, Yc, Zc
+        Xc_rot = (1 - 2*(y**2 + z**2)) * Xc + (2*(x*y - z*w)) * Yc + (2*(x*z + y*w)) * Zc
+        Yc_rot = (2*(x*y + z*w)) * Xc + (1 - 2*(x**2 + z**2)) * Yc + (2*(y*z - x*w)) * Zc
+        Zc_rot = (2*(x*z - y*w)) * Xc + (2*(y*z + x*w)) * Yc + (1 - 2*(x**2 + y**2)) * Zc
+
+        return Xc_rot, Yc_rot, Zc_rot
+        
+
     def add_shape(self, volume, shape_number, scaling_factor, center_x, center_y, center_z, max_radius, overlap_factor, nucleus_fraction):
         """
         Add a newly sampled 3D shape to the SDL3D volume, with the existing shapes occluding the new ones.
         The algorithm starts by defining a bounding box for the new shape (based on the estimated max radius) centered at the shape origin.
-        The coordinates of the centers of every voxel in the bounding box are then transformed from Cartesian to spherical coordinates,
-        and their theta and phi angles are fed to the superformula (with a random phase shift) to compute the radius of the shape in that 
-        voxel. After rescaling the shape radius with the sampled scaling factor, we detect the voxels covered by the shape 
-        by comparing each voxel radius to the shape radius. This calculation is performed using efficient numpy array slicing.
+        The coordinates of the centers of every voxel in the bounding box are then  transformed from Cartesian to spherical coordinates. 
+        A random rotation is applied to randomize the shape orientation. Then, the polar (theta) and azimuthal (phi) angles are fed to 
+        the superformula to compute the radius of the shape in that voxel. 
+        After rescaling the shape radius with the sampled scaling factor, we detect the voxels covered by the shape by comparing each 
+        voxel radius to the shape radius. This calculation is performed using efficient numpy array slicing.
         Finally, the voxels that are inside the shape and that are not covered (value still 0) are set to either the new shape number, if the volume 
         is of type 16-bit unsigned integer, or to a floating-point random value between 0 and 1 otherwise.
 
@@ -251,11 +309,11 @@ class SuperDeadLeaves3D:
         max_radius : float
             Maximum radius of the shape.
         overlap_factor : float
-            If >0: factor to rescale the shape max_radius to create an exclusion zone with no overlap between shapes (a value of 1.0 allows shapes to touch).
+            If <= 0: any overlapping is allowed. If >0: factor to rescale the shape max_radius to create an exclusion zone with no overlap between shapes (1.0 allows shapes to touch, without overlapping).
         nucleus_fraction : float
             If > 0: create a central replica of the shape (of size radius*nucleus_fraction) that resembles a cell nucleus in a cytology image.
         """
-        eps = 1.0e-40
+        eps = 1.0e-20
 
         # RECTANGULAR EXCLUSION ZONE (much faster than scaling the actual shape):
         if overlap_factor > eps:
@@ -286,14 +344,25 @@ class SuperDeadLeaves3D:
         Yc = (Y[potential_shape_mask] + 0.5 - center_y).astype(np.float32)
         Zc = (Z[potential_shape_mask] + 0.5 - center_z).astype(np.float32)
 
-        # Convert to voxel centers to spherical coordinates, and add the sampled phase to randomize the shape orientation:
+        # Apply a random rotation to randomize the orientation of the new shape, and convert to spherical coordinates:
+        if self.vol_size[2] > 1:   # 3D pattern: rotate cartesian coordinates
+            Xc, Yc, Zc = self.__random_quaternion_rotation(Xc, Yc, Zc, self.rng.random(3))
+        
         r_voxel, theta, phi = self.spherical_coordinates(Xc, Yc, Zc)
-        theta += self.phase[0]
-        phi   += self.phase[1]
+        
+        if self.vol_size[2] == 1:   # 2D pattern: randomize azimuthal angle only (no polar rotation)
+            phi = phi + self.rng.uniform(0, 2*np.pi)
 
-        # Compute Gielis superformula radii ONLY for the potentially relevant voxels.
-        r_theta, r_phi = self.gielis_superformula(theta, phi)
-        R_gielis = (r_theta * r_phi) * scaling_factor
+        # Compute Gielis superformula radii ONLY for the potentially relevant voxels. 
+        # Apply random offset to theta, since we only use the superformula profile for a span of 180 degrees.
+        r_theta, r_phi = self.gielis_superformula(theta + self.theta0, phi)
+
+        # Combine the two radii with a sinusoidal squared weighting factor for a smooth transition towards the pole, where we use the mean value of r_theta (otherwise all azimuthal values are possible at polar angle = 0 or pi):
+        weight = np.sin(theta)**2
+        mean_r_phi = np.mean(r_phi)
+        R_gielis = ( weight*r_theta*r_phi + (1-weight)*r_theta*mean_r_phi ) * scaling_factor
+          # Previous version: R_gielis = (r_theta * r_phi) * scaling_factor
+
 
         # Determine which of the pre-filtered voxels are actually inside the shape.
         inside_mask_filtered = (r_voxel < R_gielis)
@@ -306,7 +375,13 @@ class SuperDeadLeaves3D:
         if volume.dtype == np.uint16:
             volume[x_min:x_max, y_min:y_max, z_min:z_max][inside_mask] = min(shape_number, np.iinfo(np.uint16).max)   # avoid overflow when adding more than 65535 shapes
         else:
-            volume[x_min:x_max, y_min:y_max, z_min:z_max][inside_mask] = self.rng.random()
+            color = self.rng.random()
+            volume[x_min:x_max, y_min:y_max, z_min:z_max][inside_mask] = color
+
+            # If the user chose to insert a sphere as the first shape, report the parameters and disable the flag:
+            if self.spheric_target_r > 0:
+                print(f"\n     - Inserting a spheric target with color {color:.6f} and radius {scaling_factor:.2f} at [{center_x:.1f}, {center_y:.1f}, {center_z:.1f}] (distance in units of pixels).\n")
+                self.spheric_target_r = -1   # Only insert the sphere once
 
         if nucleus_fraction > eps:
             # Add a central nucleus to the shape:
@@ -317,7 +392,7 @@ class SuperDeadLeaves3D:
 
 
 
-    def generate(self, max_shapes=65500, enumerate_shapes=False, overlap_factor=0.0, nucleus_fraction=0.0, verbose=False):
+    def generate(self, max_shapes=65500, enumerate_shapes=False, overlap_factor=0.0, nucleus_fraction=0.0, verbose=True):
         """
         Generate a 3D volume filled with superformula shapes until no empty voxels remain or until max_shapes is reached.
 
@@ -328,7 +403,7 @@ class SuperDeadLeaves3D:
         enumerate_shapes: bool
             If True, each shape has a unique integer value (uint16 volume); if false, then uniform random floats in the range [0, 1] are assigned to each shape (float32 volume).
         overlap_factor : float
-            If >0: factor to rescale the shape radius to create an exclusion zone with no overlap between shapes (a value of 1.0 allows shapes to touch).
+            If <= 0: any overlapping is allowed. If >0: factor to rescale the shape max_radius to create an exclusion zone with no overlap between shapes (1.0 allows shapes to touch, without overlapping).
         nucleus_fraction : float
             If > 0: create a central replica of the shape (of size radius*nucleus_fraction) that resembles a cell nucleus in a cytology image (eg., 0.25).
         verbose : bool
@@ -343,16 +418,21 @@ class SuperDeadLeaves3D:
         dtype = np.uint16 if enumerate_shapes else np.float32
         volume = np.zeros(self.vol_size, dtype=dtype)
 
+        # Progress report interval:
+        verbose_interval = 500
+
+        # Parameters for faster and early termination:
+        speedup_threshold = 8.0/100.0   # Increase rmin when less than this fraction of voxels are uncovered to speedup the ending
+        no_progress_limit = verbose_interval*1.5   # Stop after this number of consecutive unsuccessful shape insertion attempts
+
         total_voxels = np.prod(self.vol_size)
         empty_voxels = total_voxels
         no_progress_count = 0
-        no_progress_limit = 500
-        speedup_threshold = 5.0/100.0  # Increase rmin when less than this fraction of voxels are uncovered, to speedup the ending
         rmin = self.rmin
-        verbose_interval = 500
 
         self.final_shapes = -1
         time0 = time.time()
+        time1 = time0
         for shape_number in range(1, max_shapes + 1):
             if empty_voxels == 0:
                 self.final_shapes = shape_number
@@ -361,11 +441,12 @@ class SuperDeadLeaves3D:
 
             # Sample parameters for the next shape
             self.sample_superformula_params()
-            
+
+            # Estimate the shape size to be able to scale it to follow an approximate power-law size distribution  
             min_radius, max_radius, mean_radius = self.estimate_shape_size()
 
             # Sample shape center, including a margin for shapes starting outside the volume (in each side):           
-            out_fraction = 4*self.rmin
+            out_fraction = min(4*self.rmin, self.rmax/2)
             cx = self.rng.uniform(-self.vol_size[0]*out_fraction, (self.vol_size[0] - 1) + self.vol_size[0]*out_fraction)
             cy = self.rng.uniform(-self.vol_size[1]*out_fraction, (self.vol_size[1] - 1) + self.vol_size[1]*out_fraction)
             cz = self.rng.uniform(-self.vol_size[2]*out_fraction, (self.vol_size[2] - 1) + self.vol_size[2]*out_fraction)
@@ -375,6 +456,14 @@ class SuperDeadLeaves3D:
             while r>self.rmax:
                 r = pareto.rvs(b=(self.PowerLawExp-1), scale=rmin, random_state=self.rng)
           
+            # If requested, insert a sphere inside the pattern:   !!sphere!!
+            if self.spheric_target_r > 0.0: 
+                cx = self.vol_size[0] * self.spheric_target_coord[0]
+                cy = self.vol_size[1] * self.spheric_target_coord[1]
+                cz = self.vol_size[2] * self.spheric_target_coord[2]
+                r  = self.spheric_target_r
+                # Radius reset inside add_shape after reporting coordinates and color:  self.spheric_target_r = -1   # Only insert the sphere once
+
             # Scale the shape so that the mean radius is equal to the sampled fraction of the image (X axis width)
             scaling_factor = r * self.vol_size[0] / mean_radius  
             
@@ -388,8 +477,12 @@ class SuperDeadLeaves3D:
 
             # Verbose output and various tricks
             if verbose and shape_number % verbose_interval == 0:
-                print(f"     Shape {shape_number}: Filled {total_voxels - empty_voxels}/{total_voxels} voxels = {100*(total_voxels-empty_voxels)/total_voxels:6.3f}%. Runtime: {time.time()-time0:.2f} s.")
-                
+                time_now = time.time()
+                print(f"     Shape {shape_number}: Filled {total_voxels - empty_voxels}/{total_voxels} voxels = {100*(total_voxels-empty_voxels)/total_voxels:6.3f}%. Runtime: {time_now-time0:.1f} s = {(time_now-time0)/60:.1f} min (interval: {time_now-time1:.2f}).")
+                if (time_now-time1) < 10:
+                    verbose_interval = 2*verbose_interval   # Double the interval between reports if it takes less than 10 seconds
+                time1 = time_now
+                    
                 # Speedup the ending when only few sparse holes remain, by generating larger shapes (mostly covered by previous shapes):
                 if empty_voxels < (total_voxels * speedup_threshold):
                     rmin = min(rmin*2, self.rmax/2)
@@ -399,7 +492,7 @@ class SuperDeadLeaves3D:
             if before_empty == after_empty:
                 no_progress_count += 1
             else:
-                no_progress_count = no_progress_count//2    # = 0
+                no_progress_count = no_progress_count//2
 
             # Stop if no progress after many consecutive shapes
             if no_progress_count > no_progress_limit:
@@ -433,7 +526,7 @@ class SuperDeadLeaves3D:
         Processes a 3D numpy array volume to eliminate (set to 0) the voxels of any
         shape that touches the boundary of the volume.
         This auxiliar funcion is mostly useful for making nice volume rendering without shapes
-        cut in half by the bounding box. It might also help to tile volumes without discontiniuties 
+        cut in half by the bounding box. It might also help to tile volumes without discontinuities 
         (but with a gap between tiles).
         The function modifies the input array in place. If you want to keep the original volume, send a copy 
         to the function and asign the return value to a new variable:  volume0 = borderFree(volume.copy())  
@@ -451,21 +544,54 @@ class SuperDeadLeaves3D:
         for z in range(depth):  # Front and back faces
             for y in range(height):
                 for x in range(width):
-                    # Surface check for each face
-                    if (z == 0 or z == depth-1 or 
-                        y == 0 or y == height-1 or 
-                        x == 0 or x == width-1):
+                    # Surface check for each face, except 2D cases (every voxel touches a surface in that case)
+                    if (depth  > 2 and (z == 0 or z == depth-1) or 
+                        height > 2 and (y == 0 or y == height-1) or 
+                        width  > 2 and (x == 0 or x == width-1)):
                         
-                        # If the voxel value > 0
+                        # Set to 0 the voxels of any shape touching the surface. 
+                        # This code is absurdly inefficient because it checks every voxel in the entire volume for each shape!
                         if volume[z, y, x] > 0:
-                            value_to_remove = volume[z, y, x]
-                            
-                            # Set all voxels with the same value to 0
-                            volume[volume == value_to_remove] = 0
+                            volume[volume == volume[z, y, x]] = 0
         
         return volume
     
+ 
+    def downsample_volume(volume_in, downsample_factor=4, offset_zeros=True):
+        """
+        Downsample the input volume by an integer factor using local mean pooling (skimage.transform.downscale_local_mean).   
+        If the input has only 2 dimensions or a 3rd dimension of size 1, downsampling is applied only to the first 2 dimensions.
 
+        Parameters:
+            volume_in (numpy.ndarray): The input 2D or 3D volume.
+            downsample_factor (int or tuple): Integer downsampling factor for all axis (or first two if 2D input).
+            offset_zeros (bool): If True, set any empty voxel with value 0 to the expected mean value of 0.5.
+
+        Returns:
+            numpy.ndarray: The downsampled volume.
+        """
+        if (not isinstance(downsample_factor, int)) or (volume_in.shape[0] % downsample_factor != 0) or (volume_in.shape[1] % downsample_factor != 0):
+            raise ValueError(f"!!Downsampling error!! Input volume dimensions must be divisible by the integer scale factor {downsample_factor}: volume_in.shape={volume_in.shape}")
+        
+        if volume_in.ndim > 2:
+            if volume_in.shape[2] < downsample_factor:
+                down_factor_tuple = (downsample_factor, downsample_factor, 1)
+            else:
+                down_factor_tuple = (downsample_factor, downsample_factor, downsample_factor)  # 3D input
+        else:
+            down_factor_tuple = (downsample_factor, downsample_factor)  # 2D input
+        
+        # If requested, replace all the empty voxels (value 0) with the value 0.5, to mitigate bias in the averaging (at extremely high resolutions it is likely that there will be holes in the pattern). Using a temporary copy of the volume instead of the original memory: 
+        if offset_zeros:
+            volume_in_tmp = volume_in.copy()
+            volume_in_tmp[volume_in < 1e-10] = 0.5
+        else:
+            volume_in_tmp = volume_in
+
+        # Apply skimage.transform local mean pooling for downsampling with antialiasing:
+        volume_out = downscale_local_mean(volume_in_tmp, factors=down_factor_tuple)   
+
+        return volume_out.astype(volume_in.dtype)   # Preserve original data type
 
 
 #########################################################################################
