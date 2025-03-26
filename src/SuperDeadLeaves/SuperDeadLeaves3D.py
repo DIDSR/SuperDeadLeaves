@@ -58,7 +58,7 @@ import time
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import pareto
-from skimage.transform import downscale_local_mean   # Library only necessary if I want to downsample a volume with function downsample_volume
+from skimage.transform import downscale_local_mean, rescale   # Library only necessary if I want to downsample the sampled pattern
 
 class SuperDeadLeaves3D:
     """"
@@ -74,7 +74,7 @@ class SuperDeadLeaves3D:
                  a_range=[1.0, 1.0], b_range=[1.0, 1.0],
                  m_range1=[3, 8], m_range2=[3, 8], n1_range=[1.0, 5.0],
                  n2_range=[1.0, 5.0], n3_range=[1.0, 5.0],
-                 rmin=0.015, rmax=0.15, PowerLawExp=3, num_shape_samples=71, spheric_target_r=-1, spheric_target_coord=None):
+                 rmin=0.015, rmax=0.15, PowerLawExp=3, num_shape_samples=37, spheric_target_r=-1, spheric_target_coord=None):
         """
         Initialize the SuperDeadLeaves3D generator.
 
@@ -131,11 +131,13 @@ class SuperDeadLeaves3D:
         self.rmin = rmin
         self.rmax = max(rmax, rmin*1.01)   # Make sure rmax > rmin, or we will get stuck in infinite loop
 
-        # Option to insert a sphere of the given radius at the input relative coordinates (disabled if radius < 0):   !!sphere!!
-        self.spheric_target_r = min(spheric_target_r, 0.5)
-        if spheric_target_r > 0 and spheric_target_coord is None:
-            # Sample a random location for the inserted sphere inside the bounding box
-            self.spheric_target_coord = [self.rng.uniform(self.spheric_target_r, 1-self.spheric_target_r), self.rng.uniform(self.spheric_target_r, 1-self.spheric_target_r), self.rng.uniform(self.spheric_target_r, 1-self.spheric_target_r)]
+        # Option to insert a sphere of the given radius at the input relative coordinates (disabled if radius < 0):  !!sphere!!
+        if spheric_target_r > 0:
+            self.spheric_target_r = min(spheric_target_r, 0.5)
+            self.spheric_target_coord = spheric_target_coord
+        else:
+            self.spheric_target_coord = None
+            self.spheric_target_r = -1.0
             
         # Pre-compute uniform points on a sphere (using the Fibonacci sphere algorithm) to estimate the shape size:
         indices = np.arange(0, num_shape_samples, dtype=float) + 0.5
@@ -207,14 +209,18 @@ class SuperDeadLeaves3D:
             self.m[0] = 0.0         #   Use a simple circle for the unused polar profile            
             
         # If requested, insert a sphere inside the pattern:   !!sphere!!
-        if self.spheric_target_r > 0.0:
+        if self.spheric_target_r > 0:
             self.m = [0, 0]
             
             if self.m_range1[1]<2 and self.m_range2[1]<2:   # Exception: if the pattern contains only spheres, then insert hexagonal shape
                 self.m, self.n1, self.n2, self.n3 = [6, 6], [2.5, 2.5], [1, 1], [1, 1]   # Hexagon
                 #self.m, self.n1, self.n2, self.n3 = [6, 6], [1000, 1000], [250, 250], [250, 250]   # Octagon
                 #self.m, self.n1, self.n2, self.n3 = [9, 9], [   9,    9], [ 25,  25], [ 25,  25]   # Starfish shape
-                print(f"     - Inserting an hexagonal target among spheres: m={self.m[0]}, n1={self.n1[0]}, n2={self.n2[0]}, n3={self.n3[0]}")
+                print(f"     Inserting an hexagonal target among spheres: m={self.m[0]}, n1={self.n1[0]}, n2={self.n2[0]}, n3={self.n3[0]}")
+
+            if self.spheric_target_coord is None:
+                # Sample a random location for the inserted sphere inside the bounding box
+                self.spheric_target_coord = [self.rng.uniform(self.spheric_target_r, 1-self.spheric_target_r), self.rng.uniform(self.spheric_target_r, 1-self.spheric_target_r), self.rng.uniform(self.spheric_target_r, 1-self.spheric_target_r)]
 
 
         # Optional code to prevent generating n1 exponents between -0.5 and 0.5 when range varies from negative to positive:
@@ -373,22 +379,31 @@ class SuperDeadLeaves3D:
 
         # Fill the voxels inside the shape
         if volume.dtype == np.uint16:
-            volume[x_min:x_max, y_min:y_max, z_min:z_max][inside_mask] = min(shape_number, np.iinfo(np.uint16).max)   # avoid overflow when adding more than 65535 shapes
+            
+            #volume[x_min:x_max, y_min:y_max, z_min:z_max][inside_mask] = min(shape_number, np.iinfo(np.uint16).max)   # avoid overflow when adding more than 65535 shapes            
+            volume[x_min:x_max, y_min:y_max, z_min:z_max][inside_mask] = self.rng.integers(100,200)  # !!DeBuG!! LUNG: if reporting integers, sample a shape value in the interval
+
         else:
             color = self.rng.random()
             volume[x_min:x_max, y_min:y_max, z_min:z_max][inside_mask] = color
 
             # If the user chose to insert a sphere as the first shape, report the parameters and disable the flag:
             if self.spheric_target_r > 0:
-                print(f"\n     - Inserting a spheric target with color {color:.6f} and radius {scaling_factor:.2f} at [{center_x:.1f}, {center_y:.1f}, {center_z:.1f}] (distance in units of pixels).\n")
-                self.spheric_target_r = -1   # Only insert the sphere once
+                print(f"\n     Inserting a spheric target with color {color:.6f} and radius {scaling_factor:.2f} at [{center_x:.1f}, {center_y:.1f}, {center_z:.1f}] (distance in units of pixels).\n")
+                self.spheric_target_r = -self.spheric_target_r   # Only insert the sphere once (sign reload later for multiple images)
 
         if nucleus_fraction > eps:
             # Add a central nucleus to the shape:
             inside_mask_filtered = (r_voxel < R_gielis*nucleus_fraction)
             #inside_mask = np.zeros_like(volume[x_min:x_max, y_min:y_max, z_min:z_max], dtype=bool)
             inside_mask[potential_shape_mask] = inside_mask_filtered
-            volume[x_min:x_max, y_min:y_max, z_min:z_max][inside_mask] /= 2
+            if volume.dtype == np.uint16:
+
+                # volume[x_min:x_max, y_min:y_max, z_min:z_max][inside_mask] //= 2
+                volume[x_min:x_max, y_min:y_max, z_min:z_max][inside_mask] = 1       # !!DeBuG!! LUNG: set the interior of the shapes to value 1 (0 means uncovered voxel)
+
+            else:
+                volume[x_min:x_max, y_min:y_max, z_min:z_max][inside_mask] /= 2
 
 
 
@@ -446,7 +461,12 @@ class SuperDeadLeaves3D:
             min_radius, max_radius, mean_radius = self.estimate_shape_size()
 
             # Sample shape center, including a margin for shapes starting outside the volume (in each side):           
-            out_fraction = min(4*self.rmin, self.rmax/2)
+            
+            if volume.dtype == np.uint16:
+                out_fraction = -1 * min(5*self.rmin, self.rmax/2)  # !!DeBuG!! LUNG: defining a negative out_fraction means that the centers are sampled only certain distance INSIDE the bbox!
+            else:
+                out_fraction = min(3*self.rmin, self.rmax/2)
+                
             cx = self.rng.uniform(-self.vol_size[0]*out_fraction, (self.vol_size[0] - 1) + self.vol_size[0]*out_fraction)
             cy = self.rng.uniform(-self.vol_size[1]*out_fraction, (self.vol_size[1] - 1) + self.vol_size[1]*out_fraction)
             cz = self.rng.uniform(-self.vol_size[2]*out_fraction, (self.vol_size[2] - 1) + self.vol_size[2]*out_fraction)
@@ -457,12 +477,11 @@ class SuperDeadLeaves3D:
                 r = pareto.rvs(b=(self.PowerLawExp-1), scale=rmin, random_state=self.rng)
           
             # If requested, insert a sphere inside the pattern:   !!sphere!!
-            if self.spheric_target_r > 0.0: 
+            if self.spheric_target_r > 0: 
                 cx = self.vol_size[0] * self.spheric_target_coord[0]
                 cy = self.vol_size[1] * self.spheric_target_coord[1]
                 cz = self.vol_size[2] * self.spheric_target_coord[2]
                 r  = self.spheric_target_r
-                # Radius reset inside add_shape after reporting coordinates and color:  self.spheric_target_r = -1   # Only insert the sphere once
 
             # Scale the shape so that the mean radius is equal to the sampled fraction of the image (X axis width)
             scaling_factor = r * self.vol_size[0] / mean_radius  
@@ -478,7 +497,7 @@ class SuperDeadLeaves3D:
             # Verbose output and various tricks
             if verbose and shape_number % verbose_interval == 0:
                 time_now = time.time()
-                print(f"     Shape {shape_number}: Filled {total_voxels - empty_voxels}/{total_voxels} voxels = {100*(total_voxels-empty_voxels)/total_voxels:6.3f}%. Runtime: {time_now-time0:.1f} s = {(time_now-time0)/60:.1f} min (interval: {time_now-time1:.2f}).")
+                print(f"     Shape {shape_number}: Filled {total_voxels - empty_voxels}/{total_voxels} voxels = {100*(total_voxels-empty_voxels)/total_voxels:6.3f}%. Runtime: {time_now-time0:.2f} s = {(time_now-time0)/60:.1f} min (interval: {time_now-time1:.2f}).")
                 if (time_now-time1) < 10:
                     verbose_interval = 2*verbose_interval   # Double the interval between reports if it takes less than 10 seconds
                 time1 = time_now
@@ -508,6 +527,10 @@ class SuperDeadLeaves3D:
                 self.final_shapes = max_shapes
                 print(f"\n ...Done sampling the {max_shapes} shapes...\n")
 
+        if self.spheric_target_coord is not None:
+            self.spheric_target_r = abs(self.spheric_target_r)   # Restore the input value for multiple patterns
+            self.spheric_target_coord = None                     # A random location will be sampled for any following pattern
+        
         return volume
     
 
@@ -520,6 +543,7 @@ class SuperDeadLeaves3D:
         for attr_name, value in attributes.items():
             print(f"       - {attr_name} = {value[:4] if isinstance(value, (list, tuple, np.ndarray)) else value},\t type={type(value)}")
         print("\n")
+
 
     def borderFree(volume):
         """
@@ -557,7 +581,7 @@ class SuperDeadLeaves3D:
         return volume
     
  
-    def downsample_volume(volume_in, downsample_factor=4, offset_zeros=True):
+    def downsample_volume(volume_in, downsample_factor=4, offset_zeros=True, local_mean=False):
         """
         Downsample the input volume by an integer factor using local mean pooling (skimage.transform.downscale_local_mean).   
         If the input has only 2 dimensions or a 3rd dimension of size 1, downsampling is applied only to the first 2 dimensions.
@@ -576,10 +600,13 @@ class SuperDeadLeaves3D:
         if volume_in.ndim > 2:
             if volume_in.shape[2] < downsample_factor:
                 down_factor_tuple = (downsample_factor, downsample_factor, 1)
+                down_scale_tuple = (1.0/downsample_factor, 1.0/downsample_factor, 1)
             else:
                 down_factor_tuple = (downsample_factor, downsample_factor, downsample_factor)  # 3D input
+                down_scale_tuple = (1.0/downsample_factor, 1.0/downsample_factor, 1.0/downsample_factor)
         else:
             down_factor_tuple = (downsample_factor, downsample_factor)  # 2D input
+            down_scale_tuple = (1.0/downsample_factor, 1.0/downsample_factor)
         
         # If requested, replace all the empty voxels (value 0) with the value 0.5, to mitigate bias in the averaging (at extremely high resolutions it is likely that there will be holes in the pattern). Using a temporary copy of the volume instead of the original memory: 
         if offset_zeros:
@@ -588,8 +615,13 @@ class SuperDeadLeaves3D:
         else:
             volume_in_tmp = volume_in
 
+
         # Apply skimage.transform local mean pooling for downsampling with antialiasing:
-        volume_out = downscale_local_mean(volume_in_tmp, factors=down_factor_tuple)   
+        
+        if local_mean:
+            volume_out = downscale_local_mean(volume_in_tmp, factors=down_factor_tuple)  # local mean pooling for downsampling
+        else:
+            volume_out = rescale(volume_in_tmp, scale=down_scale_tuple, order=1, anti_aliasing=True)  # Rescale with linear interpolation and anti-aliasing filtering
 
         return volume_out.astype(volume_in.dtype)   # Preserve original data type
 
