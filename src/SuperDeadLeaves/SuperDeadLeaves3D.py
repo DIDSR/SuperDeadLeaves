@@ -56,7 +56,6 @@
 
 import time
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.stats import pareto
 from skimage.transform import downscale_local_mean, rescale   # Library only necessary if I want to downsample the sampled pattern
 
@@ -180,17 +179,21 @@ class SuperDeadLeaves3D:
         return r_theta, r_phi
 
 
-    def spherical_coordinates(self, X, Y, Z):
+    def spherical_coordinates(self, X, Y, Z=None):
         """
-        Convert the input Cartesian coordinate arrays (x,y,z) to spherical coordinate arrays: r, θ, φ.
-        θ = arccos(z/r), φ = atan2(y, x).
-        """
-        r = np.sqrt(X * X + Y * Y + Z * Z).astype(np.float32)
-        with np.errstate(divide='ignore', invalid='ignore'):
-            theta = np.where(r > 0, np.arccos(Z / r).astype(np.float32), 0.0)
-        phi = np.arctan2(Y, X).astype(np.float32)
-        
-        return r, theta, phi
+        Convert the input Cartesian coordinate arrays (X,Y,Z) to spherical coordinate arrays: (r, θ, φ).
+        Handle faster 2D case where Z is not input (assumed all zeros: theta=pi/2). 
+        Compute theta with arctan2 instead of arccos for efficiency and numerical stability (avoid division by r).
+        """    
+        if Z is None:
+            r = np.hypot(X, Y).astype(np.float32)
+            theta = np.full_like(r, 0.5*np.pi, dtype=np.float32)
+            phi = np.arctan2(Y, X).astype(np.float32)
+        else:
+            r = np.sqrt(X**2 + Y**2 + Z**2).astype(np.float32)
+            theta = np.arctan2(np.hypot(X, Y), Z).astype(np.float32)
+            phi = np.arctan2(Y, X).astype(np.float32)
+        return r, theta, phi    
 
 
     def sample_superformula_params(self):
@@ -254,6 +257,7 @@ class SuperDeadLeaves3D:
           # PREVIOUS VERSION: radii = r_theta * r_phi
 
         if visualize:
+            import matplotlib.pyplot as plt
             print(f"     [estimate_shape_size] 3D superformula parameters: a={self.a[0]:.2f}, {self.a[1]:.2f}; b={self.b[0]:.2f}, {self.b[1]:.2f}; m={self.m[0]}, {self.m[1]}; n1={self.n1[0]:.2f}, {self.n1[1]:.2f}; n2={self.n2[0]:.2f}, {self.n2[1]:.2f}; n3={self.n3[0]:.2f}, {self.n3[1]:.2f}")
             print(f"                           Shape radius sampled with {len(radii)} Fibonacci points: mean={np.mean(radii)}, min={np.min(radii)}, max={np.max(radii)}")
             x = radii * np.sin(self.theta_Fibonacci) * np.cos(self.phi_Fibonacci)
@@ -351,12 +355,12 @@ class SuperDeadLeaves3D:
         Zc = (Z[potential_shape_mask] + 0.5 - center_z).astype(np.float32)
 
         # Apply a random rotation to randomize the orientation of the new shape, and convert to spherical coordinates:
-        if self.vol_size[2] > 1:   # 3D pattern: rotate cartesian coordinates
+        if self.vol_size[2] > 1:  # 3D pattern: rotate cartesian coordinates
             Xc, Yc, Zc = self.__random_quaternion_rotation(Xc, Yc, Zc, self.rng.random(3))
-        
-        r_voxel, theta, phi = self.spherical_coordinates(Xc, Yc, Zc)
-        
-        if self.vol_size[2] == 1:   # 2D pattern: randomize azimuthal angle only (no polar rotation)
+            r_voxel, theta, phi = self.spherical_coordinates(Xc, Yc, Zc)
+            
+        else:                     # 2D pattern: randomize azimuthal angle only (no polar rotation)
+            r_voxel, theta, phi = self.spherical_coordinates(Xc, Yc)  # Default Z=zeros
             phi = phi + self.rng.uniform(0, 2*np.pi)
 
         # Compute Gielis superformula radii ONLY for the potentially relevant voxels. 
@@ -630,6 +634,7 @@ class SuperDeadLeaves3D:
 
 
 if __name__ == "__main__":
+    import matplotlib.pyplot as plt
     import tifffile
 
     # ** Example script to generate a 3D volume filled with random superformula shapes using the SuperDeadLeaves3D stochastic model.
